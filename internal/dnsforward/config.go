@@ -161,6 +161,19 @@ type Config struct {
 	// BootstrapPreferIPv6, if true, instructs the bootstrapper to prefer IPv6
 	// addresses to IPv4 ones for DoH, DoQ, and DoT.
 	BootstrapPreferIPv6 bool `yaml:"bootstrap_prefer_ipv6"`
+
+	// MaxDomainUpstreams limits the total number of domain-specific upstream
+	// mappings. It applies to the combined size of domain maps. A value of 0
+	// means no limit.
+	MaxDomainUpstreams int `yaml:"max_domain_upstreams"`
+
+	// MaxParallelUpstreams limits upstream counts that are used when operating
+	// in parallel upstream mode. A value of 0 means no limit.
+	MaxParallelUpstreams int `yaml:"max_parallel_upstreams"`
+
+	// MaxUpstreamsPerDomain limits the number of upstreams per single domain entry.
+	// A value of 0 means no limit.
+	MaxUpstreamsPerDomain int `yaml:"max_upstreams_per_domain"`
 }
 
 // EDNSClientSubnet is the settings list for EDNS Client Subnet.
@@ -442,6 +455,21 @@ func (s *Server) initDefaultSettings() {
 
 	if s.conf.UpstreamTimeout == 0 {
 		s.conf.UpstreamTimeout = DefaultTimeout
+	}
+
+	// 针对 personal/family 服务类型的资源限制默认值
+	// - 当未设置或为 0 时，应用默认值
+	// - personal/family: max_domain_upstreams=10000, max_parallel_upstreams=5, max_upstreams_per_domain=5
+	if s.conf.ServiceType == "personal" || s.conf.ServiceType == "family" {
+		if s.conf.MaxDomainUpstreams == 0 {
+			s.conf.MaxDomainUpstreams = 10000
+		}
+		if s.conf.MaxParallelUpstreams == 0 {
+			s.conf.MaxParallelUpstreams = 5
+		}
+		if s.conf.MaxUpstreamsPerDomain == 0 {
+			s.conf.MaxUpstreamsPerDomain = 5
+		}
 	}
 }
 
