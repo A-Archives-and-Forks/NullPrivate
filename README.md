@@ -83,5 +83,5 @@ You can download the binary directly from the [Releases](https://github.com/Null
 Alternatively, you can use the Docker image available on [Docker Hub](https://hub.docker.com/r/nullprivate/nullprivate):
 
 ```bash
-docker run --rm --name NullPrivate -p 34020:80 -v ./data/container/work:/opt/adguardhome/work -v ./data/container/conf:/opt/adguardhome/conf nullprivate/nullprivate:latest
+docker run --name NullPrivate -p 3000:3000 -p 80:80 -p 53:53/udp -v ./data/container/work:/opt/adguardhome/work -v ./data/container/conf:/opt/adguardhome/conf nullprivate/nullprivate:latest
 ```
