@@ -2,6 +2,7 @@ package dnsforward
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/AdguardTeam/dnsproxy/proxy"
@@ -69,17 +70,24 @@ func newUpstreamConfigValidator(
 		privateUpstreamResults:  map[string]*upstreamResult{},
 	}
 
+	// Build mappings from canonical upstream address to original upstream string
+	// (preserving scheme like tcp://). These mappings will be used as keys in
+	// status output and for normalizing error messages.
+	genOriginals := collectOriginalUpstreamMap(general, opts)
+	fbOriginals := collectOriginalUpstreamMap(fallback, opts)
+	prOriginals := collectOriginalUpstreamMap(private, opts)
+
 	conf, err := proxy.ParseUpstreamsConfig(general, opts)
 	cv.generalParseResults = collectErrResults(general, err)
-	insertConfResults(conf, cv.generalUpstreamResults)
+	insertConfResults(conf, cv.generalUpstreamResults, genOriginals)
 
 	conf, err = proxy.ParseUpstreamsConfig(fallback, opts)
 	cv.fallbackParseResults = collectErrResults(fallback, err)
-	insertConfResults(conf, cv.fallbackUpstreamResults)
+	insertConfResults(conf, cv.fallbackUpstreamResults, fbOriginals)
 
 	conf, err = proxy.ParseUpstreamsConfig(private, opts)
 	cv.privateParseResults = collectErrResults(private, err)
-	insertConfResults(conf, cv.privateUpstreamResults)
+	insertConfResults(conf, cv.privateUpstreamResults, prOriginals)
 
 	return cv
 }
@@ -130,29 +138,33 @@ func collectErrResults(lines []string, err error) (results []*parseResult) {
 
 // insertConfResults parses conf and inserts the upstream result into results.
 // It can insert multiple results as well as none.
-func insertConfResults(conf *proxy.UpstreamConfig, results map[string]*upstreamResult) {
-	insertListResults(conf.Upstreams, results, false)
+func insertConfResults(conf *proxy.UpstreamConfig, results map[string]*upstreamResult, originals map[string]string) {
+	insertListResults(conf.Upstreams, results, originals, false)
 
 	for _, ups := range conf.DomainReservedUpstreams {
-		insertListResults(ups, results, true)
+		insertListResults(ups, results, originals, true)
 	}
 
 	for _, ups := range conf.SpecifiedDomainUpstreams {
-		insertListResults(ups, results, true)
+		insertListResults(ups, results, originals, true)
 	}
 }
 
 // insertListResults constructs upstream results from the upstream list and
 // inserts them into results.  It can insert multiple results as well as none.
-func insertListResults(ups []upstream.Upstream, results map[string]*upstreamResult, specific bool) {
+func insertListResults(ups []upstream.Upstream, results map[string]*upstreamResult, originals map[string]string, specific bool) {
 	for _, u := range ups {
 		addr := u.Address()
-		_, ok := results[addr]
-		if ok {
+		key := originals[addr]
+		if key == "" {
+			// Fallback to canonical address if original not found.
+			key = addr
+		}
+		if _, exists := results[key]; exists {
 			continue
 		}
 
-		results[addr] = &upstreamResult{
+		results[key] = &upstreamResult{
 			server:     u,
 			isSpecific: specific,
 		}
@@ -296,6 +308,13 @@ func upstreamResultToStatus(
 	val := "OK"
 	if res.err != nil {
 		val = res.err.Error()
+		// Normalize error message to use the original upstream string (with scheme)
+		// instead of the canonical server address, so that API responses match tests
+		// and user expectations.
+		addr := res.server.Address()
+		if addr != "" && original != "" && original != addr {
+			val = strings.ReplaceAll(val, addr, original)
+		}
 	}
 
 	prevVal := resMap[original]
@@ -313,6 +332,68 @@ func upstreamResultToStatus(
 			prevVal,
 		)
 	}
+}
+
+// collectOriginalUpstreamMap builds a map from canonical upstream address
+// (as returned by upstream.Upstream.Address()) to the original upstream string
+// from configuration lines. It preserves schemes like tcp:// in the original
+// values. It skips empty and comment-only lines.
+func collectOriginalUpstreamMap(lines []string, opts *upstream.Options) map[string]string {
+	m := map[string]string{}
+	if len(lines) == 0 {
+		return m
+	}
+
+	clone := opts
+	if clone == nil {
+		clone = &upstream.Options{}
+	}
+
+	for _, line := range lines {
+		if line == "" || line[0] == '#' {
+			continue
+		}
+
+		// Extract upstream tokens possibly after domain spec like "[/domain/]<upstreams>".
+		upsTokens := extractUpstreamTokens(line)
+		for _, tok := range upsTokens {
+			u, err := upstream.AddressToUpstream(tok, clone.Clone())
+			if err != nil {
+				continue
+			}
+			addr := u.Address()
+			if _, ok := m[addr]; !ok {
+				m[addr] = tok
+			}
+			_ = u.Close()
+		}
+	}
+
+	return m
+}
+
+// extractUpstreamTokens returns upstream tokens from an upstream config line.
+// It supports both simple lines and domain-specific lines of the form
+// "[/domain1/../domainN/]<upstreamString>" where upstreamString may contain
+// multiple upstreams separated by spaces.
+func extractUpstreamTokens(confLine string) []string {
+	if strings.HasPrefix(confLine, "[/") {
+		// cut "/]" after domains list
+		rest := confLine[len("[/"):]
+		// Find the closing "/]" delimiter.
+		idx := strings.Index(rest, "/]")
+		if idx == -1 {
+			return nil
+		}
+		upstreamsLine := rest[idx+len("/]"):]
+		upstreamsLine = strings.TrimSpace(upstreamsLine)
+		if upstreamsLine == "" {
+			return nil
+		}
+		return strings.Fields(upstreamsLine)
+	}
+
+	return []string{confLine}
 }
 
 // parseResultToStatus puts parsing error messages from results into resMap.
