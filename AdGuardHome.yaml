@@ -63,9 +63,9 @@ dns:
   ipset: []
   ipset_file: ""
   bootstrap_prefer_ipv6: false
-  max_domain_upstreams: 1
-  max_parallel_upstreams: 1
-  max_upstreams_per_domain: 1
+  max_domain_upstreams: 3000
+  max_parallel_upstreams: 5
+  max_upstreams_per_domain: 5
   upstream_timeout: 3s
   private_networks: []
   use_private_ptr_resolvers: false
@@ -172,6 +172,7 @@ filtering:
   parental_cache_size: 1048576
   cache_time: 30
   filters_update_interval: 72
+  filters_maximum_count: 5000
   blocked_response_ttl: 10
   filtering_enabled: true
   parental_enabled: true
