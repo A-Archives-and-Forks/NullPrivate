@@ -537,8 +537,8 @@ var config = &configuration{
 
 		FilteringEnabled:           true,
 		FiltersUpdateIntervalHours: 24,
-        // 默认不限制 Filters 最大规则数，保持与 enterprise 一致
-        FiltersMaximumCount:      0,
+		// 默认不限制 Filters 最大规则数，保持与 enterprise 一致
+		FiltersMaximumCount: 0,
 
 		ParentalEnabled:     false,
 		SafeBrowsingEnabled: false,

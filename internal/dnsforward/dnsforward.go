@@ -37,7 +37,7 @@ import (
 )
 
 // DefaultTimeout is the default upstream timeout
-const DefaultTimeout = 10 * time.Second
+const DefaultTimeout = 3 * time.Second
 
 // defaultLocalTimeout is the default timeout for resolving addresses from
 // locally-served networks.  It is assumed that local resolvers should work much

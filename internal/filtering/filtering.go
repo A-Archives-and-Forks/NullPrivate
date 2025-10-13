@@ -170,14 +170,14 @@ type Config struct {
 	// (in hours).
 	FiltersUpdateIntervalHours uint32 `yaml:"filters_update_interval"`
 
-    // FiltersMaximumCount 用于限制每次加载 Filters（黑名单/白名单）时可累积的规则数量上限。
-    // 该值为单类列表的上限，即分别对 block 列表与 allow 列表各自独立计数。
-    //
-    // 行为说明：
-    // - > 0：按配置的上限生效；
-    // - <= 0（未设置或非正数）：若 ServiceType 为 personal/family，使用默认 1,000,000；
-    //   其他（如 enterprise）不限制。
-    FiltersMaximumCount int `yaml:"filters_maximum_count"`
+	// FiltersMaximumCount 用于限制每次加载 Filters（黑名单/白名单）时可累积的规则数量上限。
+	// 该值为单类列表的上限，即分别对 block 列表与 allow 列表各自独立计数。
+	//
+	// 行为说明：
+	// - > 0：按配置的上限生效；
+	// - <= 0（未设置或非正数）：若 ServiceType 为 personal/family，使用默认 1,000,000；
+	//   其他（如 enterprise）不限制。
+	FiltersMaximumCount int `yaml:"filters_maximum_count"`
 
 	// BlockedResponseTTL is the time-to-live value for blocked responses.  If
 	// 0, then default value is used (3600).

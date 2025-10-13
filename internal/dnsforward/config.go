@@ -456,6 +456,10 @@ func (s *Server) initDefaultSettings() {
 	if s.conf.UpstreamTimeout == 0 {
 		s.conf.UpstreamTimeout = DefaultTimeout
 	}
+	// 上限校正：若用户配置的上游超时超过 3s，则强制降为 3s，防止阻塞变长
+	if s.conf.UpstreamTimeout > 3*time.Second {
+		s.conf.UpstreamTimeout = 3 * time.Second
+	}
 
 	// 针对 personal/family 服务类型的资源限制默认值
 	// - 当未设置或为 0 时，应用默认值
