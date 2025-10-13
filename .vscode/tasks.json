@@ -25,6 +25,18 @@
             ]
         },
         {
+            "label": "Tools: Lint (Fast)",
+            "type": "shell",
+            "command": "GOTOOLCHAIN=go1.24.6 PATH=\"${workspaceFolder}/bin:${env:PATH}\" SKIP_HEAVY_LINTERS=1 sh ./scripts/make/go-lint.sh",
+            "problemMatcher": []
+        },
+        {
+            "label": "Tools: Lint (Full)",
+            "type": "shell",
+            "command": "GOTOOLCHAIN=go1.24.6 PATH=\"${workspaceFolder}/bin:${env:PATH}\" SKIP_HEAVY_LINTERS=0 sh ./scripts/make/go-lint.sh",
+            "problemMatcher": []
+        },
+        {
             "label": "Dev: Build Backend",
             "type": "shell",
             "command": "make go-build VERBOSE=2 CHANNEL='development' ARCH='amd64' OS='linux' SIGN='0'",

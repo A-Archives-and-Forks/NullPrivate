@@ -658,7 +658,7 @@ func limitUpstreamsPerDomain(upsConf *proxy.UpstreamConfig, maxCount int) {
 }
 
 // limitUpstreamsInMaps limits the number of upstreams in each domain's entry
-func limitUpstreamsInMaps(maps []*map[string][]upstream.Upstream, maxCount int) (domainsAffected int, totalRemoved int) {
+func limitUpstreamsInMaps(maps []*map[string][]upstream.Upstream, maxCount int) (domainsAffected, totalRemoved int) {
 	for _, currentMap := range maps {
 		if *currentMap == nil {
 			continue
@@ -680,7 +680,7 @@ func limitUpstreamsInMaps(maps []*map[string][]upstream.Upstream, maxCount int) 
 // enforceMaxDomainMappings 限制域名映射总数量, 优先保留更具体域名映射
 // - 先裁剪 DomainReservedUpstreams, 如仍超限再裁剪 SpecifiedDomainUpstreams
 // - 返回各自被移除的条目数量
-func enforceMaxDomainMappings(upsConf *proxy.UpstreamConfig, maxDomains int) (removedReserved int, removedSpecified int) {
+func enforceMaxDomainMappings(upsConf *proxy.UpstreamConfig, maxDomains int) (removedReserved, removedSpecified int) {
 	if upsConf == nil || maxDomains <= 0 {
 		return 0, 0
 	}
