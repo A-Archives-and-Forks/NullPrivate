@@ -93,14 +93,17 @@ func (s *ServiceLoader) LoadServices(ctx context.Context) ([]blockedService, err
 
 // GetBlockedServices gets all loaded blocked services
 func (s *ServiceLoader) GetBlockedServices(ctx context.Context) []blockedService {
+	// Read current services under read lock, then release before potentially
+	// acquiring the write lock inside LoadServices to avoid self-deadlock.
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	services := s.services
+	s.mu.RUnlock()
 
-	if s.services != nil {
-		return s.services
+	if services != nil {
+		return services
 	}
 
-	// If not loaded yet, try to load
+	// If not loaded yet, try to load without holding the read lock.
 	services, err := s.LoadServices(ctx)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to load services", slogutil.KeyError, err)
