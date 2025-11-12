@@ -24,15 +24,15 @@ dns:
   ratelimit_whitelist: []
   refuse_any: true
   upstream_dns:
-    - h3://dns.alidns.com/dns-query
+    - https://dns.alidns.com/dns-query
   upstream_dns_file: ""
   bootstrap_dns:
     - 223.5.5.5
   fallback_dns:
     - 223.6.6.6
   upstream_alternate_dns:
-    - h3://cf.jqknono.com/dns-query
-    - h3://gg.jqknono.com/dns-query
+    - https://cf.jqknono.com/dns-query
+    - https://gg.jqknono.com/dns-query
   upstream_alternate_rulesets:
     - https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/gfw.txt
     - https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/proxy-list.txt
@@ -148,6 +148,7 @@ filtering:
     ids:
       - 1password.com
       - www.adition.com
+      - zhihu
   protection_disabled_until: null
   safe_search:
     enabled: true
@@ -181,8 +182,8 @@ filtering:
   safebrowsing_enabled: true
   protection_enabled: true
   service_urls:
-    - https://hostlistsregistry.adguardprivate.com/assets/services.zh-cn.json
     - https://list.nullprivate.com/api/lists/anti-addiction?username=adgadminadgadmin&ids=1password.com%2Cwww.adition.com
+    - https://hostlistsregistry.adguardprivate.com/assets/services.zh-cn.json
 ruleset: null
 clients:
   runtime_sources:

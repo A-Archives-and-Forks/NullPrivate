@@ -29,8 +29,13 @@ var serviceLoader *ServiceLoader
 // serviceLoaderMu protects the service loader instance.
 var serviceLoaderMu sync.RWMutex
 
+// serviceRulesMu protects serviceIDs and serviceRules.
+var serviceRulesMu sync.RWMutex
+
 // initBlockedServices initializes package-level blocked service data.
 func initBlockedServices() {
+	serviceRulesMu.Lock()
+	defer serviceRulesMu.Unlock()
 	l := len(blockedServices)
 	serviceIDs = make([]string, l)
 	serviceRules = make(map[string][]*rules.NetworkRule, l)
@@ -54,7 +59,7 @@ func initBlockedServices() {
 
 // InitServiceLoader initializes the service loader with the configured URLs.
 // It is called when the DNSFilter is created.
-func (d *DNSFilter) initServiceLoader(ctx context.Context) {
+func (d *DNSFilter) initServiceLoader() {
 	if len(d.conf.ServiceURLs) == 0 {
 		// d.conf.ServiceURLs = []string{"https://www.nullprivate.com/services/i18n/zh-cn.json"}
 		// d.conf.ServiceURLs = []string{"https://hostlistsregistry.nullprivate.com/assets/services.en-us.json"}
@@ -135,8 +140,10 @@ func updateBlockedServicesFromLoader(ctx context.Context) {
 	slices.Sort(newServiceIDs)
 
 	// 使用读写锁保护全局变量
+	serviceRulesMu.Lock()
 	serviceIDs = newServiceIDs
 	serviceRules = newServiceRules
+	serviceRulesMu.Unlock()
 
 	log.Debug("filtering: updated %d services from dynamic sources", len(services))
 }
@@ -147,6 +154,8 @@ func filterKnownServiceIDs(list []string) (kept, dropped []string) {
 	if len(list) == 0 {
 		return nil, nil
 	}
+	serviceRulesMu.RLock()
+	defer serviceRulesMu.RUnlock()
 	kept = make([]string, 0, len(list))
 	dropped = make([]string, 0)
 	for _, id := range list {
@@ -188,6 +197,8 @@ func (s *BlockedServices) Clone() (c *BlockedServices) {
 // Validate returns an error if blocked services contain unknown service ID.  s
 // must not be nil.
 func (s *BlockedServices) Validate() (err error) {
+	serviceRulesMu.RLock()
+	defer serviceRulesMu.RUnlock()
 	for _, id := range s.IDs {
 		_, ok := serviceRules[id]
 		if !ok {
@@ -214,6 +225,8 @@ func (d *DNSFilter) ApplyBlockedServices(setts *Settings) {
 
 // ApplyBlockedServicesList appends filtering rules to the settings.
 func (d *DNSFilter) ApplyBlockedServicesList(setts *Settings, list []string) {
+	serviceRulesMu.RLock()
+	defer serviceRulesMu.RUnlock()
 	for _, name := range list {
 		rules, ok := serviceRules[name]
 		if !ok {
@@ -232,7 +245,10 @@ func (d *DNSFilter) handleBlockedServicesIDs(w http.ResponseWriter, r *http.Requ
 	// 在获取规则列表前动态更新服务规则
 	updateBlockedServicesFromLoader(r.Context())
 
-	aghhttp.WriteJSONResponseOK(w, r, serviceIDs)
+	serviceRulesMu.RLock()
+	ids := slices.Clone(serviceIDs)
+	serviceRulesMu.RUnlock()
+	aghhttp.WriteJSONResponseOK(w, r, ids)
 }
 
 func (d *DNSFilter) handleBlockedServicesAll(w http.ResponseWriter, r *http.Request) {
@@ -322,6 +338,10 @@ func (d *DNSFilter) handleBlockedServicesGet(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}()
+	// 保证 JSON 返回中 `ids` 不为 null
+	if bsvc != nil && bsvc.IDs == nil {
+		bsvc.IDs = []string{}
+	}
 	aghhttp.WriteJSONResponseOK(w, r, bsvc)
 }
 
@@ -339,13 +359,11 @@ func (d *DNSFilter) handleBlockedServicesUpdate(w http.ResponseWriter, r *http.R
 	updateBlockedServicesFromLoader(r.Context())
 
 	// 规范化并过滤请求中的服务：仅按 ID 丢弃未知，避免 422。
-	if bsvc != nil {
-		kept, dropped := SanitizeBlockedServiceIDs(bsvc.IDs)
-		if len(dropped) > 0 {
-			log.Debug("blocked_services.update: dropping unknown ids: %v", dropped)
-		}
-		bsvc.IDs = kept
+	kept, dropped := SanitizeBlockedServiceIDs(bsvc.IDs)
+	if len(dropped) > 0 {
+		log.Debug("blocked_services.update: dropping unknown ids: %v", dropped)
 	}
+	bsvc.IDs = kept
 
 	err = bsvc.Validate()
 	if err != nil {
@@ -372,7 +390,7 @@ func (d *DNSFilter) handleBlockedServicesReload(w http.ResponseWriter, r *http.R
 	loader := serviceLoader
 	serviceLoaderMu.RUnlock()
 	if loader == nil {
-		d.initServiceLoader(context.Background())
+		d.initServiceLoader()
 		serviceLoaderMu.RLock()
 		loader = serviceLoader
 		serviceLoaderMu.RUnlock()
@@ -391,13 +409,16 @@ func (d *DNSFilter) handleBlockedServicesReload(w http.ResponseWriter, r *http.R
 	// 若未配置服务配置源：不视为错误，回退并保留/刷新内置服务
 	if len(urls) == 0 {
 		initBlockedServices()
+		serviceRulesMu.RLock()
+		count := len(serviceIDs)
+		serviceRulesMu.RUnlock()
 		aghhttp.WriteJSONResponseOK(w, r, struct {
 			Status  string `json:"status"`
 			Count   int    `json:"count"`
 			Message string `json:"message"`
 		}{
 			Status:  "ok",
-			Count:   len(serviceIDs),
+			Count:   count,
 			Message: "未配置服务源，已使用内置服务",
 		})
 		return
@@ -426,7 +447,7 @@ func (d *DNSFilter) handleBlockedServicesReload(w http.ResponseWriter, r *http.R
 		Message string `json:"message"`
 	}{
 		Status:  "ok",
-		Count:   len(serviceIDs),
+		Count:   func() int { serviceRulesMu.RLock(); defer serviceRulesMu.RUnlock(); return len(serviceIDs) }(),
 		Message: msg,
 	})
 }
@@ -473,7 +494,7 @@ func (d *DNSFilter) handleServiceURLsSet(w http.ResponseWriter, r *http.Request)
 	}()
 
 	// Reinitialize service loader（不绑定请求生命周期）
-	d.initServiceLoader(context.Background())
+	d.initServiceLoader()
 
 	// Reload services：使用后台超时上下文，避免客户端断开导致取消
 	if serviceLoader != nil {

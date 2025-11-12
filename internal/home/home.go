@@ -678,13 +678,8 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 	cmdlineUpdate(ctx, updLogger, opts, upd, tlsMgr)
 
 	if !globalContext.firstRun {
-		// Save the updated config.
-		err = config.write(nil)
+		err = handlePostFirstRun(ctx, slogLogger, tlsMgr)
 		fatalOnError(err)
-
-		if config.HTTPConfig.Pprof.Enabled {
-			startPprof(slogLogger, config.HTTPConfig.Pprof.Port)
-		}
 	}
 
 	dataDir := globalContext.getDataDir()
@@ -738,6 +733,21 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 
 	// Wait for other goroutines to complete their job.
 	<-done
+}
+
+// handlePostFirstRun performs initialization steps that should only run
+// when the application is not in the first-run mode.
+func handlePostFirstRun(ctx context.Context, slogLogger *slog.Logger, tlsMgr *tlsManager) error {
+	// Save the updated config.
+	if err := config.write(nil); err != nil {
+		return err
+	}
+
+	if config.HTTPConfig.Pprof.Enabled {
+		startPprof(slogLogger, config.HTTPConfig.Pprof.Port)
+	}
+
+	return nil
 }
 
 // newUpdater creates a new AdGuard Home updater.  l and conf must not be nil.

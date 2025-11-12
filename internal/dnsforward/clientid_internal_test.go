@@ -10,7 +10,6 @@ import (
 	"github.com/AdguardTeam/dnsproxy/proxy"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
-	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,23 +25,6 @@ type testTLSConn struct {
 // ConnectionState implements the tlsConn interface for testTLSConn.
 func (c testTLSConn) ConnectionState() (cs tls.ConnectionState) {
 	cs.ServerName = c.serverName
-
-	return cs
-}
-
-// testQUICConnection is a quicConnection for tests.
-type testQUICConnection struct {
-	// Connection is embedded here simply to make testQUICConnection a
-	// quic.Connection without actually implementing all methods.
-	quic.Connection
-
-	serverName string
-}
-
-// ConnectionState implements the quicConnection interface for
-// testQUICConnection.
-func (c testQUICConnection) ConnectionState() (cs quic.ConnectionState) {
-	cs.TLS.ServerName = c.serverName
 
 	return cs
 }
@@ -136,15 +118,6 @@ func TestServer_clientIDFromDNSContext(t *testing.T) {
 		inclHTTPTLS: false,
 		strictSNI:   true,
 	}, {
-		name:         "quic_clientid",
-		proto:        proxy.ProtoQUIC,
-		confSrvName:  "example.com",
-		cliSrvName:   "cli.example.com",
-		wantClientID: "cli",
-		wantErrMsg:   "",
-		inclHTTPTLS:  false,
-		strictSNI:    true,
-	}, {
 		name:         "tls_clientid_issue3437",
 		proto:        proxy.ProtoTLS,
 		confSrvName:  "example.com",
@@ -157,15 +130,6 @@ func TestServer_clientIDFromDNSContext(t *testing.T) {
 	}, {
 		name:         "tls_case",
 		proto:        proxy.ProtoTLS,
-		confSrvName:  "example.com",
-		cliSrvName:   "InSeNsItIvE.example.com",
-		wantClientID: "insensitive",
-		wantErrMsg:   ``,
-		inclHTTPTLS:  false,
-		strictSNI:    true,
-	}, {
-		name:         "quic_case",
-		proto:        proxy.ProtoQUIC,
 		confSrvName:  "example.com",
 		cliSrvName:   "InSeNsItIvE.example.com",
 		wantClientID: "insensitive",
@@ -224,17 +188,12 @@ func TestServer_clientIDFromDNSContext(t *testing.T) {
 
 			var (
 				conn    net.Conn
-				qconn   quic.Connection
 				httpReq *http.Request
 			)
 
 			switch tc.proto {
 			case proxy.ProtoHTTPS:
 				httpReq = newHTTPReq(tc.cliSrvName, tc.inclHTTPTLS)
-			case proxy.ProtoQUIC:
-				qconn = testQUICConnection{
-					serverName: tc.cliSrvName,
-				}
 			case proxy.ProtoTLS:
 				conn = testTLSConn{
 					serverName: tc.cliSrvName,
@@ -242,10 +201,9 @@ func TestServer_clientIDFromDNSContext(t *testing.T) {
 			}
 
 			pctx := &proxy.DNSContext{
-				Proto:          tc.proto,
-				Conn:           conn,
-				HTTPRequest:    httpReq,
-				QUICConnection: qconn,
+				Proto:       tc.proto,
+				Conn:        conn,
+				HTTPRequest: httpReq,
 			}
 
 			clientID, err := srv.clientIDFromDNSContext(pctx)

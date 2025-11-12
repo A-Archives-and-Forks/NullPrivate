@@ -1045,14 +1045,8 @@ func New(c *Config, blockFilters []Filter) (d *DNSFilter, err error) {
 		confMu:                 &sync.RWMutex{},
 	}
 
-	for i, p := range c.SafeFSPatterns {
-		// Use Match to validate the patterns here.
-		_, err = filepath.Match(p, "test")
-		if err != nil {
-			return nil, fmt.Errorf("safe_fs_patterns: at index %d: %w", i, err)
-		}
-
-		d.safeFSPatterns = append(d.safeFSPatterns, p)
+	if err = d.validateAndCopySafeFSPatterns(c.SafeFSPatterns); err != nil {
+		return nil, err
 	}
 
 	d.hostCheckers = []hostChecker{{
@@ -1086,47 +1080,13 @@ func New(c *Config, blockFilters []Filter) (d *DNSFilter, err error) {
 	}
 
 	if d.conf.BlockedServices != nil {
-		// 尝试在启动阶段优先加载"动态服务源"，再做 ID 规范化与校验，避免因为
-		// 仅有内置服务而把合法 ID（如 1password.com）误判为未知并剔除。
-		// 若动态加载失败，则回退到内置服务，行为与旧逻辑一致。
-		func() {
-			// 1) 初始化并尝试同步加载服务源（带超时，避免卡住启动）。
-			d.initServiceLoader(context.Background())
-			serviceLoaderMu.RLock()
-			loader := serviceLoader
-			serviceLoaderMu.RUnlock()
-
-			if loader != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				if _, e := loader.LoadServices(ctx); e != nil {
-					log.Error("filtering: preload services failed at startup: %s", e)
-					// 回退到内置列表
-					initBlockedServices()
-				} else {
-					updateBlockedServicesFromLoader(context.Background())
-				}
-			} else {
-				initBlockedServices()
-			}
-
-			// 2) 规范化与校验（此时 serviceRules 已包含动态或内置服务）。
-			kept, dropped := SanitizeBlockedServiceIDs(d.conf.BlockedServices.IDs)
-			if len(dropped) > 0 {
-				log.Error("filtering: ignoring unknown blocked-service ids at startup: %v", dropped)
-				d.conf.BlockedServices.IDs = kept
-			}
-
-			err = d.conf.BlockedServices.Validate()
-		}()
-		if err != nil {
+		if err = d.preloadBlockedServicesAtStartup(); err != nil {
 			return nil, fmt.Errorf("filtering: %w", err)
 		}
 	}
 
 	if blockFilters != nil {
-		err = d.initFiltering(nil, blockFilters)
-		if err != nil {
+		if err = d.initializeBlockFilters(blockFilters); err != nil {
 			d.Close()
 
 			return nil, fmt.Errorf("initializing filtering subsystem: %w", err)
@@ -1152,6 +1112,56 @@ func New(c *Config, blockFilters []Filter) (d *DNSFilter, err error) {
 	return d, nil
 }
 
+// validateAndCopySafeFSPatterns validates safe filesystem patterns and copies them.
+func (d *DNSFilter) validateAndCopySafeFSPatterns(patterns []string) error {
+	for i, p := range patterns {
+		// Use Match to validate the patterns here.
+		if _, err := filepath.Match(p, "test"); err != nil {
+			return fmt.Errorf("safe_fs_patterns: at index %d: %w", i, err)
+		}
+		d.safeFSPatterns = append(d.safeFSPatterns, p)
+	}
+	return nil
+}
+
+// preloadBlockedServicesAtStartup preloads dynamic service sources (with timeout)
+// and validates configured IDs, falling back to built-ins on failure.
+func (d *DNSFilter) preloadBlockedServicesAtStartup() error {
+	// 1) 初始化并尝试同步加载服务源（带超时，避免卡住启动）。
+	d.initServiceLoader()
+	serviceLoaderMu.RLock()
+	loader := serviceLoader
+	serviceLoaderMu.RUnlock()
+
+	if loader != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, e := loader.LoadServices(ctx); e != nil {
+			log.Error("filtering: preload services failed at startup: %s", e)
+			// 回退到内置列表
+			initBlockedServices()
+		} else {
+			updateBlockedServicesFromLoader(context.Background())
+		}
+	} else {
+		initBlockedServices()
+	}
+
+	// 2) 规范化与校验（此时 serviceRules 已包含动态或内置服务）。
+	kept, dropped := SanitizeBlockedServiceIDs(d.conf.BlockedServices.IDs)
+	if len(dropped) > 0 {
+		log.Error("filtering: ignoring unknown blocked-service ids at startup: %v", dropped)
+		d.conf.BlockedServices.IDs = kept
+	}
+
+	return d.conf.BlockedServices.Validate()
+}
+
+// initializeBlockFilters initializes the filtering subsystem if blockFilters are provided.
+func (d *DNSFilter) initializeBlockFilters(blockFilters []Filter) error {
+	return d.initFiltering(nil, blockFilters)
+}
+
 // Start registers web handlers and starts filters updates loop.
 func (d *DNSFilter) Start() {
 	d.filtersInitializerChan = make(chan filtersInitializerParams, 1)
@@ -1160,7 +1170,7 @@ func (d *DNSFilter) Start() {
 	d.RegisterFilteringHandlers()
 
 	// Initialize the service loader during startup
-	d.initServiceLoader(context.Background())
+	d.initServiceLoader()
 
 	go d.updatesLoop()
 }

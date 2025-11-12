@@ -82,6 +82,28 @@ func (s *ServiceLoader) LoadServices(ctx context.Context) ([]blockedService, err
 		return nil, fmt.Errorf("failed to create service cache directory: %w", err)
 	}
 
+	allServices, aggErr := s.loadFromAllURLs(ctx)
+
+	if len(allServices) > 0 {
+		s.services = allServices
+		s.lastRefresh = time.Now()
+		return s.services, nil
+	}
+
+	// 如果没有任何来源成功，且此前已有缓存内存副本，则返回缓存副本；否则返回错误
+	if s.services != nil {
+		return s.services, nil
+	}
+
+	if aggErr == nil {
+		aggErr = fmt.Errorf("no services loaded from configured URLs")
+	}
+
+	return nil, aggErr
+}
+
+// loadFromAllURLs iterates over configured URLs, loads services and aggregates errors.
+func (s *ServiceLoader) loadFromAllURLs(ctx context.Context) ([]blockedService, error) {
 	var allServices []blockedService
 	var aggErr error
 	for _, url := range s.urls {
@@ -101,23 +123,7 @@ func (s *ServiceLoader) LoadServices(ctx context.Context) ([]blockedService, err
 		}
 		allServices = append(allServices, services...)
 	}
-
-	if len(allServices) > 0 {
-		s.services = allServices
-		s.lastRefresh = time.Now()
-		return s.services, nil
-	}
-
-	// 如果没有任何来源成功，且此前已有缓存内存副本，则返回缓存副本；否则返回错误
-	if s.services != nil {
-		return s.services, nil
-	}
-
-	if aggErr == nil {
-		aggErr = fmt.Errorf("no services loaded from configured URLs")
-	}
-
-	return nil, aggErr
+	return allServices, aggErr
 }
 
 // GetBlockedServices gets all loaded blocked services

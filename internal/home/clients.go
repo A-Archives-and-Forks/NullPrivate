@@ -217,33 +217,69 @@ func (o *clientObject) toPersistent(
 		return nil, fmt.Errorf("parsing ids: %w", err)
 	}
 
+	if err = ensureUIDIfEmpty(cli); err != nil {
+		return nil, err
+	}
+
+	if err = o.initSafeSearchIfEnabled(ctx, baseLogger, cli, safeSearchCacheSize, safeSearchCacheTTL); err != nil {
+		return nil, err
+	}
+
+	cli.BlockedServices, err = o.prepareBlockedServices(baseLogger, cli.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	cli.Tags = slices.Clone(o.Tags)
+
+	return cli, nil
+}
+
+// ensureUIDIfEmpty generates a new UID if the client's UID is empty.
+func ensureUIDIfEmpty(cli *client.Persistent) error {
 	if (cli.UID == client.UID{}) {
-		cli.UID, err = client.NewUID()
+		uid, err := client.NewUID()
 		if err != nil {
-			return nil, fmt.Errorf("generating uid: %w", err)
+			return fmt.Errorf("generating uid: %w", err)
 		}
+		cli.UID = uid
+	}
+	return nil
+}
+
+// initSafeSearchIfEnabled initializes SafeSearch for the client when enabled.
+func (o *clientObject) initSafeSearchIfEnabled(
+	ctx context.Context,
+	baseLogger *slog.Logger,
+	cli *client.Persistent,
+	cacheSize uint,
+	cacheTTL time.Duration,
+) error {
+	if !o.SafeSearchConf.Enabled {
+		return nil
 	}
 
-	if o.SafeSearchConf.Enabled {
-		logger := baseLogger.With(
-			slogutil.KeyPrefix, safesearch.LogPrefix,
-			safesearch.LogKeyClient, cli.Name,
-		)
-		var ss *safesearch.Default
-		ss, err = safesearch.NewDefault(ctx, &safesearch.DefaultConfig{
-			Logger:         logger,
-			ServicesConfig: o.SafeSearchConf,
-			ClientName:     cli.Name,
-			CacheSize:      safeSearchCacheSize,
-			CacheTTL:       safeSearchCacheTTL,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("init safesearch %q: %w", cli.Name, err)
-		}
-
-		cli.SafeSearch = ss
+	logger := baseLogger.With(
+		slogutil.KeyPrefix, safesearch.LogPrefix,
+		safesearch.LogKeyClient, cli.Name,
+	)
+	ss, err := safesearch.NewDefault(ctx, &safesearch.DefaultConfig{
+		Logger:         logger,
+		ServicesConfig: o.SafeSearchConf,
+		ClientName:     cli.Name,
+		CacheSize:      cacheSize,
+		CacheTTL:       cacheTTL,
+	})
+	if err != nil {
+		return fmt.Errorf("init safesearch %q: %w", cli.Name, err)
 	}
 
+	cli.SafeSearch = ss
+	return nil
+}
+
+// prepareBlockedServices ensures blocked services are initialized, sanitized, validated.
+func (o *clientObject) prepareBlockedServices(baseLogger *slog.Logger, cliName string) (*filtering.BlockedServices, error) {
 	if o.BlockedServices == nil {
 		o.BlockedServices = &filtering.BlockedServices{
 			Schedule: schedule.EmptyWeekly(),
@@ -251,24 +287,19 @@ func (o *clientObject) toPersistent(
 	}
 
 	// 启动阶段不因未知服务而失败：剔除未知 ID 并记录日志，然后校验。
-	if o.BlockedServices != nil && len(o.BlockedServices.IDs) > 0 {
+	if len(o.BlockedServices.IDs) > 0 {
 		kept, dropped := filtering.SanitizeBlockedServiceIDs(o.BlockedServices.IDs)
 		if len(dropped) > 0 {
-			baseLogger.Error("client: ignoring unknown blocked-service ids at startup", slogutil.KeyError, fmt.Errorf("%v", dropped), safesearch.LogKeyClient, cli.Name)
+			baseLogger.Error("client: ignoring unknown blocked-service ids at startup", slogutil.KeyError, fmt.Errorf("%v", dropped), safesearch.LogKeyClient, cliName)
 			o.BlockedServices.IDs = kept
 		}
 	}
 
-	err = o.BlockedServices.Validate()
-	if err != nil {
-		return nil, fmt.Errorf("init blocked services %q: %w", cli.Name, err)
+	if err := o.BlockedServices.Validate(); err != nil {
+		return nil, fmt.Errorf("init blocked services %q: %w", cliName, err)
 	}
 
-	cli.BlockedServices = o.BlockedServices.Clone()
-
-	cli.Tags = slices.Clone(o.Tags)
-
-	return cli, nil
+	return o.BlockedServices.Clone(), nil
 }
 
 // forConfig returns all currently known persistent clients as objects for the
