@@ -94,9 +94,11 @@ const ClientsTable = ({
 
         if (values) {
             if (values.blocked_services) {
-                config.blocked_services = Object.keys(values.blocked_services).filter(
-                    (service) => values.blocked_services[service],
-                );
+                const encodeKey = (id: string) => id.replace(/\./g, '__DOT__');
+                // 仅从“已知服务列表”中收集被勾选的 ID，避免历史脏键（如 1password）混入
+                config.blocked_services = (services.allServices || [])
+                    .map((s: any) => s.id)
+                    .filter((id: string) => values.blocked_services?.[encodeKey(id)]);
             }
 
             if (values.upstreams && typeof values.upstreams === 'string') {

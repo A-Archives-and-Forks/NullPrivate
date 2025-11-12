@@ -58,7 +58,7 @@ func (d *DNSFilter) initServiceLoader(ctx context.Context) {
 	if len(d.conf.ServiceURLs) == 0 {
 		// d.conf.ServiceURLs = []string{"https://www.nullprivate.com/services/i18n/zh-cn.json"}
 		// d.conf.ServiceURLs = []string{"https://hostlistsregistry.nullprivate.com/assets/services.en-us.json"}
-		d.conf.ServiceURLs = []string{"https://hostlistsregistry.nullprivate.com/assets/services.zh-cn.json"}
+		d.conf.ServiceURLs = []string{"https://hostlistsregistry.adguardprivate.com/assets/services.zh-cn.json"}
 	}
 
 	logger := slog.Default()
@@ -79,15 +79,19 @@ func (d *DNSFilter) initServiceLoader(ctx context.Context) {
 	serviceLoader = newLoader
 	serviceLoaderMu.Unlock()
 
-	// 预加载服务
+	// 预加载服务：使用与请求无关的后台上下文，避免 r.Context() 很快被取消导致“context canceled”
 	go func() {
 		// 在goroutine中使用读锁访问 serviceLoader
 		serviceLoaderMu.RLock()
 		loader := serviceLoader
 		serviceLoaderMu.RUnlock()
 
+		// 预加载使用独立的超时上下文
+		preloadCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
 		if loader != nil {
-			_, err := loader.LoadServices(ctx)
+			_, err := loader.LoadServices(preloadCtx)
 			if err != nil {
 				log.Error("filtering: failed to load services: %s", err)
 			}
@@ -135,6 +139,31 @@ func updateBlockedServicesFromLoader(ctx context.Context) {
 	serviceRules = newServiceRules
 
 	log.Debug("filtering: updated %d services from dynamic sources", len(services))
+}
+
+// filterKnownServiceIDs 过滤出当前已知（可用）的服务 ID。
+// 返回值：第一个为保留的已知 ID，第二个为被丢弃的未知 ID。
+func filterKnownServiceIDs(list []string) (kept, dropped []string) {
+	if len(list) == 0 {
+		return nil, nil
+	}
+	kept = make([]string, 0, len(list))
+	dropped = make([]string, 0)
+	for _, id := range list {
+		if _, ok := serviceRules[id]; ok {
+			kept = append(kept, id)
+		} else {
+			dropped = append(dropped, id)
+		}
+	}
+	return kept, dropped
+}
+
+// SanitizeBlockedServiceIDs 导出方法：用于在启动或加载配置时，
+// 将未知的服务 ID 从列表中剔除，避免因校验失败阻止系统启动。
+// 注意：该函数不会返回错误，仅返回保留与丢弃的列表。
+func SanitizeBlockedServiceIDs(list []string) (kept, dropped []string) {
+	return filterKnownServiceIDs(list)
 }
 
 // BlockedServices is the configuration of blocked services.
@@ -255,18 +284,24 @@ func (d *DNSFilter) handleBlockedServicesSet(w http.ResponseWriter, r *http.Requ
 	// 在设置规则前动态更新服务规则
 	updateBlockedServicesFromLoader(r.Context())
 
+	// 规范化为 id 并丢弃未知项
+	ids, dropped := SanitizeBlockedServiceIDs(list)
+	if len(dropped) > 0 {
+		log.Debug("blocked_services.set: dropping unknown ids: %v", dropped)
+	}
+
 	func() {
 		d.confMu.Lock()
 		defer d.confMu.Unlock()
 		if d.conf.BlockedServices == nil {
 			d.conf.BlockedServices = &BlockedServices{
 				Schedule: schedule.EmptyWeekly(),
-				IDs:      list,
+				IDs:      ids,
 			}
 		} else {
-			d.conf.BlockedServices.IDs = list
+			d.conf.BlockedServices.IDs = ids
 		}
-		log.Debug("Updated blocked services list: %d", len(list))
+		log.Debug("Updated blocked services list: %d", len(ids))
 	}()
 	d.conf.ConfigModified()
 }
@@ -303,6 +338,15 @@ func (d *DNSFilter) handleBlockedServicesUpdate(w http.ResponseWriter, r *http.R
 	// 在更新规则前动态更新服务规则
 	updateBlockedServicesFromLoader(r.Context())
 
+	// 规范化并过滤请求中的服务：仅按 ID 丢弃未知，避免 422。
+	if bsvc != nil {
+		kept, dropped := SanitizeBlockedServiceIDs(bsvc.IDs)
+		if len(dropped) > 0 {
+			log.Debug("blocked_services.update: dropping unknown ids: %v", dropped)
+		}
+		bsvc.IDs = kept
+	}
+
 	err = bsvc.Validate()
 	if err != nil {
 		aghhttp.Error(r, w, http.StatusUnprocessableEntity, "validating: %s", err)
@@ -323,18 +367,58 @@ func (d *DNSFilter) handleBlockedServicesUpdate(w http.ResponseWriter, r *http.R
 // handleBlockedServicesReload is the handler for the POST
 // /control/blocked_services/reload HTTP API
 func (d *DNSFilter) handleBlockedServicesReload(w http.ResponseWriter, r *http.Request) {
-	if serviceLoader == nil {
-		aghhttp.Error(r, w, http.StatusBadRequest, "service loader not initialized")
+	// 确保已初始化 loader（避免因进程生命周期差异导致的空指针场景）
+	serviceLoaderMu.RLock()
+	loader := serviceLoader
+	serviceLoaderMu.RUnlock()
+	if loader == nil {
+		d.initServiceLoader(context.Background())
+		serviceLoaderMu.RLock()
+		loader = serviceLoader
+		serviceLoaderMu.RUnlock()
+	}
+
+	// 读取当前配置的 service_urls
+	var urls []string
+	func() {
+		d.confMu.RLock()
+		defer d.confMu.RUnlock()
+		if d.conf.ServiceURLs != nil {
+			urls = slices.Clone(d.conf.ServiceURLs)
+		}
+	}()
+
+	// 若未配置服务配置源：不视为错误，回退并保留/刷新内置服务
+	if len(urls) == 0 {
+		initBlockedServices()
+		aghhttp.WriteJSONResponseOK(w, r, struct {
+			Status  string `json:"status"`
+			Count   int    `json:"count"`
+			Message string `json:"message"`
+		}{
+			Status:  "ok",
+			Count:   len(serviceIDs),
+			Message: "未配置服务源，已使用内置服务",
+		})
 		return
 	}
 
-	_, err := serviceLoader.LoadServices(r.Context())
+	// 使用后台超时上下文，避免请求被客户端中断导致 context canceled
+	reloadCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 尝试重新加载；失败时降级为使用内置/缓存数据并返回 200，避免 500
+	_, err := loader.LoadServices(reloadCtx)
 	if err != nil {
-		aghhttp.Error(r, w, http.StatusInternalServerError, "failed to reload services: %s", err)
-		return
+		log.Error("failed to reload services, falling back: %s", err)
 	}
 
 	updateBlockedServicesFromLoader(r.Context())
+
+	msg := "服务已重新加载"
+	if err != nil {
+		msg = "服务源加载失败，已回退至内置/缓存数据"
+	}
 
 	aghhttp.WriteJSONResponseOK(w, r, struct {
 		Status  string `json:"status"`
@@ -343,7 +427,7 @@ func (d *DNSFilter) handleBlockedServicesReload(w http.ResponseWriter, r *http.R
 	}{
 		Status:  "ok",
 		Count:   len(serviceIDs),
-		Message: "服务已重新加载",
+		Message: msg,
 	})
 }
 
@@ -379,7 +463,7 @@ func (d *DNSFilter) handleServiceURLsSet(w http.ResponseWriter, r *http.Request)
 
 	if len(data.ServiceURLs) == 0 {
 		// Use default value
-		data.ServiceURLs = []string{"https://hostlistsregistry.nullprivate.com/assets/services.json"}
+		data.ServiceURLs = []string{"https://hostlistsregistry.adguardprivate.com/assets/services.zh-cn.json"}
 	}
 
 	func() {
@@ -388,17 +472,34 @@ func (d *DNSFilter) handleServiceURLsSet(w http.ResponseWriter, r *http.Request)
 		d.conf.ServiceURLs = data.ServiceURLs
 	}()
 
-	// Reinitialize service loader
-	d.initServiceLoader(r.Context())
+	// Reinitialize service loader（不绑定请求生命周期）
+	d.initServiceLoader(context.Background())
 
-	// Reload services
+	// Reload services：使用后台超时上下文，避免客户端断开导致取消
 	if serviceLoader != nil {
-		_, loadErr := serviceLoader.LoadServices(r.Context())
+		reloadCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		_, loadErr := serviceLoader.LoadServices(reloadCtx)
 		if loadErr != nil {
 			log.Error("failed to reload services: %s", loadErr)
 		}
 		updateBlockedServicesFromLoader(r.Context())
 	}
+
+	// 在更新 ServiceURLs 后，对当前全局 blocked_services 做一次规范化与清理：
+	// 仅保留仍然有效的 ID，删除因源变化而变为未知的项，避免后续更新时报 422。
+	func() {
+		d.confMu.Lock()
+		defer d.confMu.Unlock()
+		if d.conf.BlockedServices != nil && len(d.conf.BlockedServices.IDs) > 0 {
+			kept, dropped := SanitizeBlockedServiceIDs(d.conf.BlockedServices.IDs)
+			if len(dropped) > 0 {
+				log.Debug("service_urls.set: removed unknown blocked-service ids after source change: %v", dropped)
+			}
+			d.conf.BlockedServices.IDs = kept
+		}
+	}()
 
 	log.Debug("Updated service URLs: %d", len(data.ServiceURLs))
 	d.conf.ConfigModified()

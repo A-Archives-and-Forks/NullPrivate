@@ -24,7 +24,7 @@ func main() {
 	ctx := context.Background()
 	l := slogutil.New(nil)
 
-	urlStr := "https://hostlistsregistry.nullprivate.com/assets/services.en-us.json"
+	urlStr := "https://hostlistsregistry.adguardprivate.com/assets/services.zh-cn.json"
 	if v, ok := os.LookupEnv("URL"); ok {
 		urlStr = v
 	}

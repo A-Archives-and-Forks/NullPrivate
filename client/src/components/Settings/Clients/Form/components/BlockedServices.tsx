@@ -15,8 +15,13 @@ export const BlockedServices = ({ services }: Props) => {
 
     const useGlobalServices = watch('use_global_blocked_services');
 
+
+    // 使用“点号占位符”避免 RHF 把点解析为嵌套对象
+    const DOT_TOKEN = '__DOT__';
+    const encodeKey = (id: string) => id.replace(/\./g, DOT_TOKEN);
+    const toFieldPath = (id: string) => `blocked_services.${encodeKey(id)}`;
     const handleToggleAllServices = (isSelected: boolean) => {
-        services.forEach((service: BlockedService) => setValue(`blocked_services.${service.id}`, isSelected));
+        services.forEach((service: BlockedService) => setValue(toFieldPath(service.id) as any, isSelected));
     };
 
     return (
@@ -63,7 +68,7 @@ export const BlockedServices = ({ services }: Props) => {
                         {services.map((service: BlockedService) => (
                             <Controller
                                 key={service.id}
-                                name={`blocked_services.${service.id}`}
+                                name={toFieldPath(service.id) as any}
                                 control={control}
                                 render={({ field }) => (
                                     <ServiceField

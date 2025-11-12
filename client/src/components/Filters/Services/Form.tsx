@@ -6,6 +6,12 @@ import { Controller, useForm } from 'react-hook-form';
 
 import { ServiceField } from './ServiceField';
 
+// 将服务 ID 转换为 React Hook Form 可安全使用的字段路径：
+// 使用 bracket+引号 语法，避免点号被解析为嵌套对象。
+const DOT_TOKEN = '__DOT__';
+const encodeKey = (id: string) => id.replace(/\./g, DOT_TOKEN);
+const toFieldPath = (id: string) => `blocked_services.${encodeKey(id)}`;
+
 export type BlockedService = {
     id: string;
     name: string;
@@ -29,14 +35,28 @@ export const Form = ({ initialValues, blockedServices, processing, processingSet
         handleSubmit,
         control,
         setValue,
+        reset,
         formState: { isSubmitting },
     } = useForm<FormValues>({
         mode: 'onBlur',
-        defaultValues: initialValues,
+        defaultValues: {
+            blocked_services: Object.fromEntries(
+                Object.entries(initialValues?.blocked_services || {}).map(([k, v]) => [encodeKey(k), v]),
+            ),
+        },
     });
 
+    // 当 initialValues 变化时重置表单
+    React.useEffect(() => {
+        reset({
+            blocked_services: Object.fromEntries(
+                Object.entries(initialValues?.blocked_services || {}).map(([k, v]) => [encodeKey(k), v]),
+            ),
+        });
+    }, [initialValues, reset]);
+
     const handleToggleAllServices = async (isSelected: boolean) => {
-        blockedServices.forEach((service: BlockedService) => setValue(`blocked_services.${service.id}`, isSelected));
+        blockedServices.forEach((service: BlockedService) => setValue(toFieldPath(service.id) as any, isSelected));
     };
 
     return (
@@ -70,7 +90,7 @@ export const Form = ({ initialValues, blockedServices, processing, processingSet
                     {blockedServices.map((service: BlockedService) => (
                         <Controller
                             key={service.id}
-                            name={`blocked_services.${service.id}`}
+                            name={toFieldPath(service.id) as any}
                             control={control}
                             render={({ field }) => (
                                 <ServiceField

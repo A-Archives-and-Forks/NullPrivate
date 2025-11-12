@@ -4,7 +4,7 @@ type Props = {
     className?: string;
 };
 
-export const Logo = memo(({ className }: Props) => {
+export const Logo = memo(({ className: _className }: Props) => {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" width="160" height="40" viewBox="0 0 160 40">
     <defs>
@@ -13,10 +13,10 @@ export const Logo = memo(({ className }: Props) => {
         </clipPath>
     </defs>
     <g fillRule="evenodd">
-        <text x="50" y="24" fill="#1a73e8" alignment-baseline="middle" font-weight="600" font-family="Arial, sans-serif"
-            font-size="24px" letterSpacing="0em" text-anchor="start">宁屏</text>
+        <text x="50" y="24" fill="#1a73e8" alignmentBaseline="middle" fontWeight="600" fontFamily="Arial, sans-serif"
+            fontSize="24px" letterSpacing="0em" textAnchor="start">宁屏</text>
         
-        <g clip-path="url(#circleMask)">
+        <g clipPath="url(#circleMask)">
             <circle cx="20" cy="20" r="20" fill="#1a73e8" />
             
             <circle cx="10" cy="14" r="14" fill="#34a853" opacity="0.7" />

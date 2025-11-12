@@ -632,6 +632,13 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 	// data first, but also to avoid relying on automatic Go init() function.
 	filtering.InitModule()
 
+	// 在初始化 clients 之前预加载服务源。
+	// 确保使用正确的数据目录（workDir/data -> data/data）。
+	if config.Filtering != nil {
+		config.Filtering.DataDir = globalContext.getDataDir()
+	}
+	filtering.PreloadServiceCatalog(context.Background(), config.Filtering, slogLogger)
+
 	// TODO(s.chzhen):  Use it for the entire initialization process.
 	ctx := context.Background()
 

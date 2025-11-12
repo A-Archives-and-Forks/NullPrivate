@@ -250,7 +250,7 @@ func (d *DNSFilter) loadFilters(array []FilterYAML) {
 
 		totalCount += filter.RulesCount
 		if maximumCount > 0 && totalCount > maximumCount {
-			log.Error("filtering: too many rules in filters, skipping the rest")
+			log.Error("filtering: too many rules in filters, exceed the limit %d", maximumCount)
 			break
 		}
 	}

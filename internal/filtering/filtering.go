@@ -1086,7 +1086,39 @@ func New(c *Config, blockFilters []Filter) (d *DNSFilter, err error) {
 	}
 
 	if d.conf.BlockedServices != nil {
-		err = d.conf.BlockedServices.Validate()
+		// 尝试在启动阶段优先加载"动态服务源"，再做 ID 规范化与校验，避免因为
+		// 仅有内置服务而把合法 ID（如 1password.com）误判为未知并剔除。
+		// 若动态加载失败，则回退到内置服务，行为与旧逻辑一致。
+		func() {
+			// 1) 初始化并尝试同步加载服务源（带超时，避免卡住启动）。
+			d.initServiceLoader(context.Background())
+			serviceLoaderMu.RLock()
+			loader := serviceLoader
+			serviceLoaderMu.RUnlock()
+
+			if loader != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if _, e := loader.LoadServices(ctx); e != nil {
+					log.Error("filtering: preload services failed at startup: %s", e)
+					// 回退到内置列表
+					initBlockedServices()
+				} else {
+					updateBlockedServicesFromLoader(context.Background())
+				}
+			} else {
+				initBlockedServices()
+			}
+
+			// 2) 规范化与校验（此时 serviceRules 已包含动态或内置服务）。
+			kept, dropped := SanitizeBlockedServiceIDs(d.conf.BlockedServices.IDs)
+			if len(dropped) > 0 {
+				log.Error("filtering: ignoring unknown blocked-service ids at startup: %v", dropped)
+				d.conf.BlockedServices.IDs = kept
+			}
+
+			err = d.conf.BlockedServices.Validate()
+		}()
 		if err != nil {
 			return nil, fmt.Errorf("filtering: %w", err)
 		}

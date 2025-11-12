@@ -250,6 +250,15 @@ func (o *clientObject) toPersistent(
 		}
 	}
 
+	// 启动阶段不因未知服务而失败：剔除未知 ID 并记录日志，然后校验。
+	if o.BlockedServices != nil && len(o.BlockedServices.IDs) > 0 {
+		kept, dropped := filtering.SanitizeBlockedServiceIDs(o.BlockedServices.IDs)
+		if len(dropped) > 0 {
+			baseLogger.Error("client: ignoring unknown blocked-service ids at startup", slogutil.KeyError, fmt.Errorf("%v", dropped), safesearch.LogKeyClient, cli.Name)
+			o.BlockedServices.IDs = kept
+		}
+	}
+
 	err = o.BlockedServices.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("init blocked services %q: %w", cli.Name, err)

@@ -43,7 +43,7 @@ export default defineConfig({
 
     webServer: {
         stdout: process.env.CI ? 'pipe' : 'ignore',
-        command: `${!process.env.CI ? 'sudo ' : ''}./AdGuardHome --local-frontend -v -c ${CONFIG_FILE_PATH}`,
+        command: `${!process.env.CI ? 'sudo ' : ''}./NullPrivate --local-frontend -v -c ${CONFIG_FILE_PATH}`,
         url: 'http://127.0.0.1:3000',
         cwd: '..',
         reuseExistingServer: !process.env.CI,

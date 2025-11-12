@@ -12,7 +12,7 @@ block_auth_min: 15
 http_proxy: ""
 language: zh-cn
 theme: light
-service_type: enterprise
+service_type: family
 dns:
   bind_hosts:
     - 0.0.0.0
@@ -115,9 +115,9 @@ filters:
     name: AdAway Default Blocklist
     id: 2
   - enabled: true
-    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt
-    name: 1Hosts (mini)
-    id: 1734953904
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt
+    name: 1Hosts (Lite)
+    id: 1762919631
 whitelist_filters: []
 user_rules:
   - example1.com
@@ -145,7 +145,9 @@ filtering:
   blocked_services:
     schedule:
       time_zone: Local
-    ids: []
+    ids:
+      - 1password.com
+      - www.adition.com
   protection_disabled_until: null
   safe_search:
     enabled: true
@@ -180,6 +182,7 @@ filtering:
   protection_enabled: true
   service_urls:
     - https://hostlistsregistry.adguardprivate.com/assets/services.zh-cn.json
+    - https://list.nullprivate.com/api/lists/anti-addiction?username=adgadminadgadmin&ids=1password.com%2Cwww.adition.com
 ruleset: null
 clients:
   runtime_sources:
@@ -201,22 +204,26 @@ clients:
       blocked_services:
         schedule:
           time_zone: Local
-        ids: []
+        ids:
+          - zhihu
+          - 1password.com
+          - www.adition.com
       name: "123"
       ids:
         - "456"
         - "789"
       tags:
         - device_audio
-      upstreams: []
+      upstreams:
+        - 223.5.5.5
       uid: 0197ca3f-0a6c-7d07-b117-4546e20823d6
       upstreams_cache_size: 4096
       upstreams_cache_enabled: true
-      use_global_settings: true
+      use_global_settings: false
       filtering_enabled: false
       parental_enabled: false
       safebrowsing_enabled: false
-      use_global_blocked_services: true
+      use_global_blocked_services: false
       ignore_querylog: false
       ignore_statistics: false
 log:
@@ -227,7 +234,7 @@ log:
   max_age: 3
   compress: false
   local_time: false
-  verbose: true
+  verbose: false
 os:
   group: ""
   user: ""

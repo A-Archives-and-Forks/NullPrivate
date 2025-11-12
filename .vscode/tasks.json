@@ -61,7 +61,7 @@
         {
             "label": "Dev: Run NullPrivate",
             "type": "shell",
-            "command": "./NullPrivate -c ../AdGuardHome.yaml -w ./data --web-addr 0.0.0.0:34020 --local-frontend --no-check-update --verbose",
+            "command": "./NullPrivate -c ../AdGuardHome.yaml -w ./data --web-addr 0.0.0.0:34020 --local-frontend --no-check-update", // --verbose
             "problemMatcher": []
         },
         {
@@ -173,7 +173,14 @@
         {
             "label": "Deploy: Push to Docker Hub",
             "type": "shell",
-            "command": "echo $DOCKER_HUB_TOKEN_NULLPRIVATE | docker login --username nullprivate --password-stdin && docker pull \"registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version}\" && docker tag \"registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version}\" \"docker.io/nullprivate/nullprivate:${input:version}\" && docker tag \"registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version}\" \"docker.io/nullprivate/nullprivate:latest\" && docker push \"docker.io/nullprivate/nullprivate:${input:version}\" && docker push \"docker.io/nullprivate/nullprivate:latest\"",
+            "command": "bash ./scripts/docker/push-to-dockerhub.sh ${input:version}",
+            "options": {
+                "env": {
+                    // 在 VSCode 任务环境中显式清空 git/bash 可能注入的交互提示，保持输出干净
+                    "DOCKER_CLI_HINTS": "false",
+                    "DOCKER_HUB_TOKEN_NULLPRIVATE": "${env:DOCKER_HUB_TOKEN_NULLPRIVATE}"
+                }
+            },
             "problemMatcher": []
         },
         // ==================== Tools & Testing ====================
