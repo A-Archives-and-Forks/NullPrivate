@@ -45,6 +45,8 @@
         'restore-keys': '${{ runner.os }}-go-'
     - 'name': 'Get npm cache directory'
       'id': 'npm-cache'
+      # Windows 默认 shell 是 PowerShell，会导致 $GITHUB_OUTPUT 写入失败，进而缓存缺少 path。
+      'shell': 'bash'
       'run': 'echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"'
     - 'name': 'Set up npm cache'
       'uses': 'actions/cache@v4'
