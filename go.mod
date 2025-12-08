@@ -1,6 +1,6 @@
 module github.com/AdguardTeam/AdGuardHome
 
-go 1.24.9
+go 1.24.11
 
 require (
 	github.com/AdguardTeam/dnsproxy v0.75.5
@@ -131,3 +131,4 @@ tool (
 
 // 使用本地dnsproxy
 replace github.com/AdguardTeam/dnsproxy v0.75.5 => ../dnsproxy
+

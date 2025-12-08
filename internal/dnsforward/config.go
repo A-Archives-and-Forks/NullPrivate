@@ -317,6 +317,31 @@ const (
 
 // newProxyConfig creates and validates configuration for the main proxy.
 func (s *Server) newProxyConfig() (conf *proxy.Config, err error) {
+	// 打印当前代理环境变量，便于启动时确认代理生效与否
+	httpProxy := os.Getenv("HTTP_PROXY")
+	if httpProxy == "" {
+		httpProxy = os.Getenv("http_proxy")
+	}
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+	if httpsProxy == "" {
+		httpsProxy = os.Getenv("https_proxy")
+	}
+	allProxy := os.Getenv("ALL_PROXY")
+	if allProxy == "" {
+		allProxy = os.Getenv("all_proxy")
+	}
+	noProxy := os.Getenv("NO_PROXY")
+	if noProxy == "" {
+		noProxy = os.Getenv("no_proxy")
+	}
+	log.Info(
+		"dnsforward: proxy env: HTTP_PROXY=%s HTTPS_PROXY=%s ALL_PROXY=%s NO_PROXY=%s",
+		httpProxy,
+		httpsProxy,
+		allProxy,
+		noProxy,
+	)
+
 	srvConf := s.conf
 	trustedPrefixes := netutil.UnembedPrefixes(srvConf.TrustedProxies)
 

@@ -678,7 +678,7 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 	cmdlineUpdate(ctx, updLogger, opts, upd, tlsMgr)
 
 	if !globalContext.firstRun {
-		err = handlePostFirstRun(ctx, slogLogger, tlsMgr)
+		err = handlePostFirstRun(slogLogger)
 		fatalOnError(err)
 	}
 
@@ -737,7 +737,7 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 
 // handlePostFirstRun performs initialization steps that should only run
 // when the application is not in the first-run mode.
-func handlePostFirstRun(ctx context.Context, slogLogger *slog.Logger, tlsMgr *tlsManager) error {
+func handlePostFirstRun(slogLogger *slog.Logger) error {
 	// Save the updated config.
 	if err := config.write(nil); err != nil {
 		return err
