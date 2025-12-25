@@ -75,7 +75,7 @@ For detailed documentation, visit: [NullPrivate Documentation](https://nullpriva
 You can download the binary directly from the [Releases](https://github.com/NullPrivate/NullPrivate/releases) page. Once downloaded, follow these steps to run it:
 
 ```bash
-./NullPrivate -c ./AdGuardHome.yaml -w ./data --web-addr 0.0.0.0:34020 --local-frontend --no-check-update --verbose
+./NullPrivate --web-addr 0.0.0.0:3000 --local-frontend --no-check-update --verbose
 ```
 
 ### Use Docker Image
