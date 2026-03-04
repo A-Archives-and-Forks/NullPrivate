@@ -126,7 +126,11 @@ tool (
 	mvdan.cc/unparam
 )
 
-replace github.com/AdguardTeam/dnsproxy v0.75.5 => github.com/NullPrivate/dnsproxy v0.76.2
+// replace github.com/AdguardTeam/dnsproxy v0.75.5 => github.com/NullPrivate/dnsproxy v0.76.2
 
-// 使用本地dnsproxy
+// 使用已发布的 dnsproxy tag（来自 github.com/NullPrivate/dnsproxy）。
+// 注意：require 中保持上游模块版本不变，仅通过 replace 将其重定向到我们的 fork。
+replace github.com/AdguardTeam/dnsproxy v0.75.5 => github.com/NullPrivate/dnsproxy v0.76.3
+
+// 使用本地 dnsproxy（开发调试用）
 // replace github.com/AdguardTeam/dnsproxy v0.75.5 => ../dnsproxy
