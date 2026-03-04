@@ -6,7 +6,7 @@
         {
             "id": "version",
             "description": "Please enter the version number (e.g., v1.3.0)",
-            "default": "v1.4.3",
+            "default": "v1.4.4",
             "type": "promptString"
         }
     ],
@@ -157,15 +157,7 @@
             ]
         },
         {
-            "label": "Deploy: Push Latest to Aliyun (Full)",
-            "type": "shell",
-            "command": "make build-docker VERBOSE=2 CHANNEL='development' ARCH='amd64 arm64' DOCKER_IMAGE_NAME='registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate' DOCKER_OUTPUT='type=image,name=registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:latest,push=true'",
-            "dependsOn": [
-                "Release: Build Release"
-            ]
-        },
-        {
-            "label": "Deploy: Push Latest to Aliyun (Quick)",
+            "label": "Deploy: Push version to Latest to Aliyun (Quick)",
             "type": "shell",
             "command": "docker pull registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version} && docker tag registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version} registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:latest && docker push registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:latest",
             "problemMatcher": []
