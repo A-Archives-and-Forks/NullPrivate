@@ -949,6 +949,10 @@ func initWorkingDir(opts options) (err error) {
 func cleanup(ctx context.Context) {
 	log.Info("stopping AdGuard Home")
 
+	if globalContext.tls != nil {
+		globalContext.tls.Close()
+	}
+
 	if globalContext.web != nil {
 		globalContext.web.close(ctx)
 		globalContext.web = nil
