@@ -20,6 +20,7 @@ require (
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
 	github.com/insomniacslk/dhcp v0.0.0-20250417080101-5f8cf70e8c5f
+	github.com/jackc/pgx/v5 v5.7.6
 	github.com/kardianos/service v1.2.2
 	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118
 	github.com/mdlayher/netlink v1.7.2
@@ -64,6 +65,9 @@ require (
 	github.com/googleapis/gax-go/v2 v2.14.2 // indirect
 	github.com/gookit/color v1.5.4 // indirect
 	github.com/gordonklaus/ineffassign v0.1.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/josharian/native v1.1.0 // indirect
 	github.com/jstemmer/go-junit-report/v2 v2.1.0 // indirect
 	github.com/kisielk/errcheck v1.9.0 // indirect

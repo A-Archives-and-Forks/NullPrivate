@@ -78,6 +78,9 @@ type homeContext struct {
 	// command-line options.
 	confFilePath string
 
+	// configStore is the active configuration persistence backend.
+	configStore configStore
+
 	workDir     string // Location of our directory, used to protect against CWD being somewhere else
 	pidFileName string // PID file name.  Empty if no PID file was created.
 	controlLock sync.Mutex
@@ -604,6 +607,9 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 	// Configure config filename.
 	initConfigFilename(opts)
 
+	err = initConfigStore()
+	fatalOnError(err)
+
 	ls := getLogSettings(opts)
 
 	// Configure log level and output.
@@ -949,6 +955,15 @@ func initWorkingDir(opts options) (err error) {
 func cleanup(ctx context.Context) {
 	log.Info("stopping AdGuard Home")
 
+	if globalContext.configStore != nil {
+		err := globalContext.configStore.Close()
+		if err != nil {
+			log.Error("closing config store: %s", err)
+		}
+
+		globalContext.configStore = nil
+	}
+
 	if globalContext.tls != nil {
 		globalContext.tls.Close()
 	}
@@ -1076,19 +1091,12 @@ func printHTTPAddresses(proto string, tlsMgr *tlsManager) {
 
 // detectFirstRun returns true if this is the first run of AdGuard Home.
 func detectFirstRun() (ok bool) {
-	confPath := globalContext.confFilePath
-	if !filepath.IsAbs(confPath) {
-		confPath = filepath.Join(globalContext.workDir, globalContext.confFilePath)
-	}
-
-	_, err := os.Stat(confPath)
+	exists, err := currentConfigStore().Exists()
 	if err == nil {
-		return false
-	} else if errors.Is(err, os.ErrNotExist) {
-		return true
+		return !exists
 	}
 
-	log.Error("detecting first run: %s; considering first run", err)
+	log.Error("detecting first run from config store: %s; considering first run", err)
 
 	return true
 }

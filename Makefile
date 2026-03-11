@@ -119,6 +119,7 @@ go-lint:      ; $(ENV) "$(SHELL)"    ./scripts/make/go-lint.sh
 # TODO(a.garipov): Think about making RACE='1' the default for all
 # targets.
 go-test:      ; $(ENV) RACE='1' "$(SHELL)" ./scripts/make/go-test.sh
+go-test-integration: ; $(ENV) RACE='0' "$(SHELL)" ./scripts/make/go-test-integration.sh
 go-tools:     ; $(ENV)          "$(SHELL)" ./scripts/make/go-tools.sh
 go-upd-tools: ; $(ENV)          "$(SHELL)" ./scripts/make/go-upd-tools.sh
 
