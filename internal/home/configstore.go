@@ -157,7 +157,7 @@ func writeConfigMirror(filePath string, data []byte) (err error) {
 	return nil
 }
 
-func syncConfigMirrorBestEffort(store configStore, filePath string, operation string) {
+func syncConfigMirrorBestEffort(store configStore, filePath, operation string) {
 	err := syncConfigMirror(store, filePath)
 	if err != nil {
 		log.Error("syncing local config mirror after %s: %s; continuing", operation, err)

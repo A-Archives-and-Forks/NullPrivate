@@ -2,11 +2,11 @@ package home
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	yaml "gopkg.in/yaml.v3"
@@ -263,7 +263,7 @@ func TestDetectFirstRunUsesConfigStore(t *testing.T) {
 
 	t.Run("store error", func(t *testing.T) {
 		storeConfigStoreGlobals(t)
-		globalContext.configStore = &fakeConfigStore{err: errors.New("boom")}
+		globalContext.configStore = &fakeConfigStore{err: errors.Error("boom")}
 
 		assert.True(t, detectFirstRun())
 	})
@@ -335,7 +335,7 @@ func TestSyncConfigMirror(t *testing.T) {
 	t.Run("returns mirror write errors", func(t *testing.T) {
 		storeConfigStoreGlobals(t)
 
-		writer := &fakeMirrorWriter{err: errors.New("mirror boom")}
+		writer := &fakeMirrorWriter{err: errors.Error("mirror boom")}
 		newConfigMirrorWriter = func(_ string) configMirrorWriter {
 			return writer
 		}
@@ -349,7 +349,7 @@ func TestSyncConfigMirror(t *testing.T) {
 	t.Run("best effort ignores mirror write errors", func(t *testing.T) {
 		storeConfigStoreGlobals(t)
 
-		writer := &fakeMirrorWriter{err: errors.New("mirror boom")}
+		writer := &fakeMirrorWriter{err: errors.Error("mirror boom")}
 		newConfigMirrorWriter = func(_ string) configMirrorWriter {
 			return writer
 		}
@@ -367,7 +367,7 @@ func TestSyncConfigMirror(t *testing.T) {
 func TestWriteConfigMirrorBestEffort(t *testing.T) {
 	storeConfigStoreGlobals(t)
 
-	writer := &fakeMirrorWriter{err: errors.New("mirror boom")}
+	writer := &fakeMirrorWriter{err: errors.Error("mirror boom")}
 	newConfigMirrorWriter = func(_ string) configMirrorWriter {
 		return writer
 	}
@@ -394,7 +394,7 @@ func TestNewConfigStoreIgnoresMirrorWriteErrors(t *testing.T) {
 		return store, nil
 	}
 
-	writer := &fakeMirrorWriter{err: errors.New("mirror boom")}
+	writer := &fakeMirrorWriter{err: errors.Error("mirror boom")}
 	newConfigMirrorWriter = func(_ string) configMirrorWriter {
 		return writer
 	}

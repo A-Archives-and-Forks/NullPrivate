@@ -6,13 +6,13 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardHome/internal/configmigrate"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	yaml "gopkg.in/yaml.v3"
@@ -172,9 +172,11 @@ type pgQueryer interface {
 }
 
 // type checks
-var _ configStore = (*postgresConfigStore)(nil)
-var _ configStoreWriteWithReason = (*postgresConfigStore)(nil)
-var _ versionedConfigStore = (*postgresConfigStore)(nil)
+var (
+	_ configStore                = (*postgresConfigStore)(nil)
+	_ configStoreWriteWithReason = (*postgresConfigStore)(nil)
+	_ versionedConfigStore       = (*postgresConfigStore)(nil)
+)
 
 func newPostgresConfigStore(parentCtx context.Context, dsn string) (store *postgresConfigStore, err error) {
 	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
@@ -244,13 +246,13 @@ func (s *postgresConfigStore) Read() (data []byte, err error) {
 }
 
 func (s *postgresConfigStore) Write(data []byte) (err error) {
-	_, err = s.writeRevision(data, configChangeReasonUpdate, defaultConfigRevisionActor, nil, false)
+	err = s.writeRevision(data, configChangeReasonUpdate, defaultConfigRevisionActor, nil, false)
 
 	return err
 }
 
 func (s *postgresConfigStore) WriteWithReason(data []byte, reason configChangeReason, actor string) (err error) {
-	_, err = s.writeRevision(data, reason, actor, nil, false)
+	err = s.writeRevision(data, reason, actor, nil, false)
 
 	return err
 }
@@ -480,13 +482,15 @@ func (s *postgresConfigStore) writeRevision(
 	actor string,
 	rollbackOfRevisionID *int64,
 	forceCreate bool,
-) (meta ConfigRevisionMeta, err error) {
+) (err error) {
+	var meta ConfigRevisionMeta
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	tx, err := s.beginLockedTx(ctx)
 	if err != nil {
-		return ConfigRevisionMeta{}, err
+		return err
 	}
 
 	committed := false
@@ -498,7 +502,7 @@ func (s *postgresConfigStore) writeRevision(
 
 	activeData, activeMeta, err := s.readActiveRevision(ctx, tx)
 	if err != nil && !os.IsNotExist(err) {
-		return ConfigRevisionMeta{}, err
+		return err
 	}
 
 	if err == nil && !forceCreate {
@@ -506,14 +510,14 @@ func (s *postgresConfigStore) writeRevision(
 		if activeMeta.SHA256 == hash && bytes.Equal(activeData, data) {
 			err = tx.Commit(ctx)
 			if err != nil {
-				return ConfigRevisionMeta{}, fmt.Errorf("committing noop config write: %w", err)
+				return fmt.Errorf("committing noop config write: %w", err)
 			}
 
 			committed = true
 
 			writeConfigMirrorBestEffort(configFilePath(), data, "noop-refresh")
 
-			return activeMeta, nil
+			return nil
 		}
 	}
 
@@ -532,29 +536,29 @@ func (s *postgresConfigStore) writeRevision(
 		rollbackOfRevisionID,
 	)
 	if err != nil {
-		return ConfigRevisionMeta{}, err
+		return err
 	}
 
 	err = s.setActiveRevisionTx(ctx, tx, meta.RevisionID)
 	if err != nil {
-		return ConfigRevisionMeta{}, err
+		return err
 	}
 
 	err = s.pruneOldRevisionsTx(ctx, tx, configRevisionRetentionLimit)
 	if err != nil {
-		return ConfigRevisionMeta{}, err
+		return err
 	}
 
 	err = tx.Commit(ctx)
 	if err != nil {
-		return ConfigRevisionMeta{}, fmt.Errorf("committing config revision: %w", err)
+		return fmt.Errorf("committing config revision: %w", err)
 	}
 
 	committed = true
 
 	writeConfigMirrorBestEffort(configFilePath(), data, string(normalizeConfigReason(reason)))
 
-	return meta, nil
+	return nil
 }
 
 func (s *postgresConfigStore) beginLockedTx(ctx context.Context) (tx pgx.Tx, err error) {
@@ -672,7 +676,9 @@ func (s *postgresConfigStore) insertRevisionTx(
 	actor string,
 	parentRevisionID *int64,
 	rollbackOfRevisionID *int64,
-) (meta ConfigRevisionMeta, err error) {
+) (ConfigRevisionMeta, error) {
+	var meta ConfigRevisionMeta
+
 	schemaVersion, err := extractConfigSchemaVersion(data)
 	if err != nil {
 		return ConfigRevisionMeta{}, fmt.Errorf("extracting config schema version: %w", err)

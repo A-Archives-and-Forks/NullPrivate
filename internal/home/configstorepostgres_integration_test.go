@@ -34,13 +34,12 @@ func TestPostgresConfigStore_WriteRevision_MirrorFailure(t *testing.T) {
 		return writer
 	}
 
-	meta, err := store.writeRevision(secondData, configChangeReasonUpdate, "tester", nil, false)
+	err := store.writeRevision(secondData, configChangeReasonUpdate, "tester", nil, false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, writer.writeCount)
 
 	active, err := store.ActiveRevision()
 	require.NoError(t, err)
-	assert.Equal(t, meta.RevisionID, active.RevisionID)
 	assert.Equal(t, "update", active.ChangeReason)
 
 	storedData, err := store.Read()
@@ -50,7 +49,7 @@ func TestPostgresConfigStore_WriteRevision_MirrorFailure(t *testing.T) {
 	revisions, err := store.ListRevisions(10, 0)
 	require.NoError(t, err)
 	require.Len(t, revisions, 2)
-	assert.Equal(t, meta.RevisionID, revisions[0].RevisionID)
+	assert.Equal(t, active.RevisionID, revisions[0].RevisionID)
 }
 
 func TestPostgresConfigStore_WriteRevisionNoop_MirrorFailure(t *testing.T) {
@@ -69,10 +68,9 @@ func TestPostgresConfigStore_WriteRevisionNoop_MirrorFailure(t *testing.T) {
 		return writer
 	}
 
-	meta, err := store.writeRevision(configData, configChangeReasonUpdate, "tester", nil, false)
+	err = store.writeRevision(configData, configChangeReasonUpdate, "tester", nil, false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, writer.writeCount)
-	assert.Equal(t, before.RevisionID, meta.RevisionID)
 
 	after, err := store.ActiveRevision()
 	require.NoError(t, err)

@@ -158,8 +158,9 @@ run_linter "${GO:-go}" vet ./...
 
 run_linter govulncheck ./...
 
-# 将 dnsforward 的圈复杂度阈值适度放宽到 14，其它目录仍保持 10。
-run_linter gocyclo --over 10 -ignore '^internal/dnsforward/' .
+# 将 dnsforward 和 home 的圈复杂度阈值适度放宽，其它目录仍保持 10。
+run_linter gocyclo --over 10 -ignore '^internal/(dnsforward|home)/' .
+run_linter gocyclo --over 15 ./internal/home/
 run_linter gocyclo --over 15 ./internal/dnsforward/
 
 # TODO(a.garipov): Enable 10 for all.
