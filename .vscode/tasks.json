@@ -6,7 +6,7 @@
         {
             "id": "version",
             "description": "Please enter the version number (e.g., v1.3.0)",
-            "default": "v1.3.3",
+            "default": "v1.4.4",
             "type": "promptString"
         }
     ],
@@ -23,6 +23,18 @@
             "problemMatcher": [
                 "$tsc"
             ]
+        },
+        {
+            "label": "Tools: Lint (Fast)",
+            "type": "shell",
+            "command": "GOTOOLCHAIN=go1.24.11 PATH=\"${workspaceFolder}/bin:${env:PATH}\" SKIP_HEAVY_LINTERS=1 sh ./scripts/make/go-lint.sh",
+            "problemMatcher": []
+        },
+        {
+            "label": "Tools: Lint (Full)",
+            "type": "shell",
+            "command": "GOTOOLCHAIN=go1.24.11 PATH=\"${workspaceFolder}/bin:${env:PATH}\" SKIP_HEAVY_LINTERS=0 sh ./scripts/make/go-lint.sh",
+            "problemMatcher": []
         },
         {
             "label": "Dev: Build Backend",
@@ -49,7 +61,7 @@
         {
             "label": "Dev: Run NullPrivate",
             "type": "shell",
-            "command": "./NullPrivate -c ../AdGuardHome.yaml -w ./data --web-addr 0.0.0.0:34020 --local-frontend --no-check-update --verbose",
+            "command": "./NullPrivate -c ../AdGuardHome.yaml -w ./data --web-addr 0.0.0.0:34020 --local-frontend --no-check-update", // --verbose
             "problemMatcher": []
         },
         {
@@ -145,15 +157,7 @@
             ]
         },
         {
-            "label": "Deploy: Push Latest to Aliyun (Full)",
-            "type": "shell",
-            "command": "make build-docker VERBOSE=2 CHANNEL='development' ARCH='amd64 arm64' DOCKER_IMAGE_NAME='registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate' DOCKER_OUTPUT='type=image,name=registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:latest,push=true'",
-            "dependsOn": [
-                "Release: Build Release"
-            ]
-        },
-        {
-            "label": "Deploy: Push Latest to Aliyun (Quick)",
+            "label": "Deploy: Push version to Latest to Aliyun (Quick)",
             "type": "shell",
             "command": "docker pull registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version} && docker tag registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version} registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:latest && docker push registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:latest",
             "problemMatcher": []
@@ -161,7 +165,14 @@
         {
             "label": "Deploy: Push to Docker Hub",
             "type": "shell",
-            "command": "echo $DOCKER_HUB_TOKEN_NULLPRIVATE | docker login --username nullprivate --password-stdin && docker pull \"registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version}\" && docker tag \"registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version}\" \"docker.io/nullprivate/nullprivate:${input:version}\" && docker tag \"registry.cn-hangzhou.aliyuncs.com/adguardprivate/adguardprivate:${input:version}\" \"docker.io/nullprivate/nullprivate:latest\" && docker push \"docker.io/nullprivate/nullprivate:${input:version}\" && docker push \"docker.io/nullprivate/nullprivate:latest\"",
+            "command": "bash ./scripts/docker/push-to-dockerhub.sh ${input:version}",
+            "options": {
+                "env": {
+                    // 在 VSCode 任务环境中显式清空 git/bash 可能注入的交互提示，保持输出干净
+                    "DOCKER_CLI_HINTS": "false",
+                    "DOCKER_HUB_TOKEN_NULLPRIVATE": "${env:DOCKER_HUB_TOKEN_NULLPRIVATE}"
+                }
+            },
             "problemMatcher": []
         },
         // ==================== Tools & Testing ====================

@@ -44,6 +44,9 @@ type tlsManager struct {
 	// certLastMod is the last modification time of the certificate file.
 	certLastMod time.Time
 
+	// keyLastMod is the last modification time of the private key file.
+	keyLastMod time.Time
+
 	// rootCerts is a pool of root CAs for TLSv1.2.
 	rootCerts *x509.CertPool
 
@@ -65,6 +68,14 @@ type tlsManager struct {
 
 	// servePlainDNS defines if plain DNS is allowed for incoming requests.
 	servePlainDNS bool
+
+	// certReloadCancel cancels the certificate reload timer goroutine.  If it's
+	// nil, the timer goroutine is not running.
+	certReloadCancel context.CancelFunc
+
+	// certReloadDone is closed when the certificate reload timer goroutine
+	// exits.  It is nil when the goroutine is not running.
+	certReloadDone chan struct{}
 }
 
 // tlsManagerConfig contains the settings for initializing the TLS manager.
@@ -128,7 +139,7 @@ func newTLSManager(ctx context.Context, conf *tlsManagerConfig) (m *tlsManager, 
 		return m, err
 	}
 
-	m.setCertFileTime(ctx)
+	m.setTLSFileTimes(ctx)
 
 	return m, nil
 }
@@ -161,21 +172,33 @@ func (m *tlsManager) config() (conf *tlsConfigSettings) {
 	return m.conf.clone()
 }
 
-// setCertFileTime sets [tlsManager.certLastMod] from the certificate.  If there
-// are errors, setCertFileTime logs them.  m.mu is expected to be locked.
-func (m *tlsManager) setCertFileTime(ctx context.Context) {
-	if len(m.conf.CertificatePath) == 0 {
-		return
+// setTLSFileTimes sets [tlsManager.certLastMod] and [tlsManager.keyLastMod]
+// from the certificate and private key file paths.  If there are errors,
+// setTLSFileTimes logs them.  m.mu is expected to be locked.
+func (m *tlsManager) setTLSFileTimes(ctx context.Context) {
+	certPath := m.conf.CertificatePath
+	if len(certPath) == 0 {
+		m.certLastMod = time.Time{}
+	} else {
+		fi, err := os.Stat(certPath)
+		if err != nil {
+			m.logger.ErrorContext(ctx, "looking up certificate path", slogutil.KeyError, err)
+		} else {
+			m.certLastMod = fi.ModTime().UTC()
+		}
 	}
 
-	fi, err := os.Stat(m.conf.CertificatePath)
-	if err != nil {
-		m.logger.ErrorContext(ctx, "looking up certificate path", slogutil.KeyError, err)
-
-		return
+	keyPath := m.conf.PrivateKeyPath
+	if len(keyPath) == 0 {
+		m.keyLastMod = time.Time{}
+	} else {
+		fi, err := os.Stat(keyPath)
+		if err != nil {
+			m.logger.ErrorContext(ctx, "looking up private key path", slogutil.KeyError, err)
+		} else {
+			m.keyLastMod = fi.ModTime().UTC()
+		}
 	}
-
-	m.certLastMod = fi.ModTime().UTC()
 }
 
 // start updates the configuration of t and starts it.
@@ -185,12 +208,15 @@ func (m *tlsManager) start(_ context.Context) {
 	m.registerWebHandlers()
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	tlsConf := m.conf
+	m.mu.Unlock()
 
 	// The background context is used because the TLSConfigChanged wraps context
 	// with timeout on its own and shuts down the server, which handles current
 	// request.
-	m.web.tlsConfigChanged(context.Background(), m.conf)
+	m.web.tlsConfigChanged(context.Background(), tlsConf)
+
+	m.ensureCertReloadTimer()
 }
 
 // reload updates the configuration and restarts the TLS manager.  It logs any
@@ -203,34 +229,65 @@ func (m *tlsManager) reload(ctx context.Context) {
 
 	tlsConf := m.conf
 
-	if !tlsConf.Enabled || len(tlsConf.CertificatePath) == 0 {
+	if !tlsConf.Enabled || (len(tlsConf.CertificatePath) == 0 && len(tlsConf.PrivateKeyPath) == 0) {
 		return
 	}
 
-	certPath := tlsConf.CertificatePath
-	fi, err := os.Stat(certPath)
-	if err != nil {
-		m.logger.ErrorContext(ctx, "checking certificate file", slogutil.KeyError, err)
+	var (
+		certMod time.Time
+		keyMod  time.Time
+	)
+
+	certSame := true
+	if certPath := tlsConf.CertificatePath; certPath != "" {
+		fi, err := os.Stat(certPath)
+		if err != nil {
+			m.logger.ErrorContext(ctx, "checking certificate file", slogutil.KeyError, err)
+
+			return
+		}
+
+		certMod = fi.ModTime().UTC()
+		certSame = certMod.Equal(m.certLastMod)
+	}
+
+	keySame := true
+	if keyPath := tlsConf.PrivateKeyPath; keyPath != "" {
+		fi, err := os.Stat(keyPath)
+		if err != nil {
+			m.logger.ErrorContext(ctx, "checking private key file", slogutil.KeyError, err)
+
+			return
+		}
+
+		keyMod = fi.ModTime().UTC()
+		keySame = keyMod.Equal(m.keyLastMod)
+	}
+
+	if certSame && keySame {
+		m.logger.DebugContext(ctx, "certificate files are not modified")
 
 		return
 	}
 
-	if fi.ModTime().UTC().Equal(m.certLastMod) {
-		m.logger.InfoContext(ctx, "certificate file is not modified")
-
-		return
-	}
-
-	m.logger.InfoContext(ctx, "certificate file is modified")
-
-	err = m.load(ctx)
+	err := m.load(ctx)
 	if err != nil {
 		m.logger.ErrorContext(ctx, "reloading", slogutil.KeyError, err)
 
 		return
 	}
 
-	m.certLastMod = fi.ModTime().UTC()
+	if tlsConf.CertificatePath != "" {
+		m.certLastMod = certMod
+	} else {
+		m.certLastMod = time.Time{}
+	}
+
+	if tlsConf.PrivateKeyPath != "" {
+		m.keyLastMod = keyMod
+	} else {
+		m.keyLastMod = time.Time{}
+	}
 
 	err = m.reconfigureDNSServer()
 	if err != nil {
@@ -241,6 +298,100 @@ func (m *tlsManager) reload(ctx context.Context) {
 	// with timeout on its own and shuts down the server, which handles current
 	// request.
 	m.web.tlsConfigChanged(context.Background(), tlsConf)
+}
+
+// shouldRunCertReloadTimerLocked returns true if the certificate reload timer
+// goroutine should be running.  m.mu is expected to be locked.
+func (m *tlsManager) shouldRunCertReloadTimerLocked() (ok bool) {
+	return m.conf.Enabled && (m.conf.CertificatePath != "" || m.conf.PrivateKeyPath != "")
+}
+
+// ensureCertReloadTimer starts or stops the certificate reload timer goroutine
+// based on the current TLS configuration.
+func (m *tlsManager) ensureCertReloadTimer() {
+	var (
+		start bool
+		stop  bool
+
+		cancel context.CancelFunc
+		done   chan struct{}
+		ctx    context.Context
+	)
+
+	m.mu.Lock()
+	shouldRun := m.shouldRunCertReloadTimerLocked()
+	running := m.certReloadCancel != nil
+	switch {
+	case shouldRun && !running:
+		ctx, cancel = context.WithCancel(context.Background())
+		done = make(chan struct{})
+
+		m.certReloadCancel = cancel
+		m.certReloadDone = done
+		start = true
+	case !shouldRun && running:
+		cancel = m.certReloadCancel
+		done = m.certReloadDone
+
+		m.certReloadCancel = nil
+		m.certReloadDone = nil
+		stop = true
+	default:
+		// No changes.
+	}
+	m.mu.Unlock()
+
+	if stop {
+		cancel()
+		<-done
+	}
+
+	if start {
+		go m.certReloadLoop(ctx, done)
+	}
+}
+
+// certReloadLoop periodically checks certificate files and triggers reload if
+// needed.  It is intended to be used as a goroutine.
+func (m *tlsManager) certReloadLoop(ctx context.Context, done chan struct{}) {
+	defer slogutil.RecoverAndLog(ctx, m.logger)
+	defer close(done)
+
+	const checkIvl = 1 * time.Hour
+
+	t := time.NewTicker(checkIvl)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-t.C:
+			m.reload(ctx)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// Close stops background goroutines owned by tlsManager.
+func (m *tlsManager) Close() {
+	var (
+		cancel context.CancelFunc
+		done   chan struct{}
+	)
+
+	m.mu.Lock()
+	cancel = m.certReloadCancel
+	done = m.certReloadDone
+	m.certReloadCancel = nil
+	m.certReloadDone = nil
+	m.mu.Unlock()
+
+	if cancel == nil {
+		return
+	}
+
+	cancel()
+	<-done
 }
 
 // reconfigureDNSServer updates the DNS server configuration using the stored
@@ -520,13 +671,13 @@ func (m *tlsManager) handleTLSConfigure(w http.ResponseWriter, r *http.Request) 
 	}()
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if req.PrivateKeySaved {
 		req.PrivateKey = m.conf.PrivateKey
 	}
 
 	if err = m.validateTLSSettings(req); err != nil {
+		m.mu.Unlock()
 		aghhttp.Error(r, w, http.StatusBadRequest, "%s", err)
 
 		return
@@ -535,6 +686,7 @@ func (m *tlsManager) handleTLSConfigure(w http.ResponseWriter, r *http.Request) 
 	status := &tlsConfigStatus{}
 	err = m.loadTLSConfig(ctx, &req.tlsConfigSettings, status)
 	if err != nil {
+		m.mu.Unlock()
 		resp := tlsConfig{
 			tlsConfigSettingsExt: req,
 			tlsConfigStatus:      status,
@@ -546,7 +698,7 @@ func (m *tlsManager) handleTLSConfigure(w http.ResponseWriter, r *http.Request) 
 	}
 
 	restartHTTPS = m.setConfig(ctx, req.tlsConfigSettings, status, req.ServePlainDNS)
-	m.setCertFileTime(ctx)
+	m.setTLSFileTimes(ctx)
 
 	if req.ServePlainDNS != aghalg.NBNull {
 		func() {
@@ -561,6 +713,7 @@ func (m *tlsManager) handleTLSConfigure(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		m.logger.ErrorContext(ctx, "reconfiguring dns server", slogutil.KeyError, err)
 
+		m.mu.Unlock()
 		aghhttp.Error(r, w, http.StatusInternalServerError, "%s", err)
 
 		return
@@ -568,8 +721,10 @@ func (m *tlsManager) handleTLSConfigure(w http.ResponseWriter, r *http.Request) 
 
 	resp := tlsConfig{
 		tlsConfigSettingsExt: req,
-		tlsConfigStatus:      m.status,
+		tlsConfigStatus:      status,
 	}
+
+	m.mu.Unlock()
 
 	marshalTLS(w, r, resp)
 	rc := http.NewResponseController(w)
@@ -585,6 +740,8 @@ func (m *tlsManager) handleTLSConfigure(w http.ResponseWriter, r *http.Request) 
 	if restartHTTPS {
 		go m.web.tlsConfigChanged(context.Background(), &req.tlsConfigSettings)
 	}
+
+	m.ensureCertReloadTimer()
 }
 
 // validateTLSSettings returns error if the setts are not valid.

@@ -12,7 +12,7 @@ block_auth_min: 15
 http_proxy: ""
 language: zh-cn
 theme: light
-service_type: enterprise
+service_type: family
 dns:
   bind_hosts:
     - 0.0.0.0
@@ -24,15 +24,15 @@ dns:
   ratelimit_whitelist: []
   refuse_any: true
   upstream_dns:
-    - h3://dns.alidns.com/dns-query
+    - https://dns.alidns.com/dns-query
   upstream_dns_file: ""
   bootstrap_dns:
     - 223.5.5.5
   fallback_dns:
     - 223.6.6.6
   upstream_alternate_dns:
-    - h3://cf.jqknono.com/dns-query
-    - h3://gg.jqknono.com/dns-query
+    - https://cf.jqknono.com/dns-query
+    - https://gg.jqknono.com/dns-query
   upstream_alternate_rulesets:
     - https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/gfw.txt
     - https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/proxy-list.txt
@@ -63,9 +63,9 @@ dns:
   ipset: []
   ipset_file: ""
   bootstrap_prefer_ipv6: false
-  max_domain_upstreams: 1
-  max_parallel_upstreams: 1
-  max_upstreams_per_domain: 1
+  max_domain_upstreams: 3000
+  max_parallel_upstreams: 5
+  max_upstreams_per_domain: 5
   upstream_timeout: 3s
   private_networks: []
   use_private_ptr_resolvers: false
@@ -115,9 +115,9 @@ filters:
     name: AdAway Default Blocklist
     id: 2
   - enabled: true
-    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt
-    name: 1Hosts (mini)
-    id: 1734953904
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt
+    name: 1Hosts (Lite)
+    id: 1762919631
 whitelist_filters: []
 user_rules:
   - example1.com
@@ -145,7 +145,10 @@ filtering:
   blocked_services:
     schedule:
       time_zone: Local
-    ids: []
+    ids:
+      - 1password.com
+      - www.adition.com
+      - zhihu
   protection_disabled_until: null
   safe_search:
     enabled: true
@@ -172,12 +175,14 @@ filtering:
   parental_cache_size: 1048576
   cache_time: 30
   filters_update_interval: 72
+  filters_maximum_count: 5000
   blocked_response_ttl: 10
   filtering_enabled: true
   parental_enabled: true
   safebrowsing_enabled: true
   protection_enabled: true
   service_urls:
+    - https://list.nullprivate.com/api/lists/anti-addiction?username=adgadminadgadmin&ids=1password.com%2Cwww.adition.com
     - https://hostlistsregistry.adguardprivate.com/assets/services.zh-cn.json
 ruleset: null
 clients:
@@ -200,22 +205,26 @@ clients:
       blocked_services:
         schedule:
           time_zone: Local
-        ids: []
+        ids:
+          - zhihu
+          - 1password.com
+          - www.adition.com
       name: "123"
       ids:
         - "456"
         - "789"
       tags:
         - device_audio
-      upstreams: []
+      upstreams:
+        - 223.5.5.5
       uid: 0197ca3f-0a6c-7d07-b117-4546e20823d6
       upstreams_cache_size: 4096
       upstreams_cache_enabled: true
-      use_global_settings: true
+      use_global_settings: false
       filtering_enabled: false
       parental_enabled: false
       safebrowsing_enabled: false
-      use_global_blocked_services: true
+      use_global_blocked_services: false
       ignore_querylog: false
       ignore_statistics: false
 log:
@@ -226,7 +235,7 @@ log:
   max_age: 3
   compress: false
   local_time: false
-  verbose: true
+  verbose: false
 os:
   group: ""
   user: ""

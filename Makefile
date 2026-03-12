@@ -27,7 +27,7 @@ DIST_DIR = dist
 GOAMD64 = v1
 GOPROXY = https://proxy.golang.org|direct
 GOTELEMETRY = off
-GOTOOLCHAIN = go1.24.6
+GOTOOLCHAIN = go1.24.11
 GPG_KEY = devteam@adguard.com
 GPG_KEY_PASSPHRASE = not-a-real-password
 NPM = npm
@@ -119,6 +119,7 @@ go-lint:      ; $(ENV) "$(SHELL)"    ./scripts/make/go-lint.sh
 # TODO(a.garipov): Think about making RACE='1' the default for all
 # targets.
 go-test:      ; $(ENV) RACE='1' "$(SHELL)" ./scripts/make/go-test.sh
+go-test-integration: ; $(ENV) RACE='0' "$(SHELL)" ./scripts/make/go-test-integration.sh
 go-tools:     ; $(ENV)          "$(SHELL)" ./scripts/make/go-tools.sh
 go-upd-tools: ; $(ENV)          "$(SHELL)" ./scripts/make/go-upd-tools.sh
 

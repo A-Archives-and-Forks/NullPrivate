@@ -491,9 +491,7 @@ func TestClientsDHCP(t *testing.T) {
 				return false
 			}
 
-			assert.True(t, compareRuntimeInfo(cli, client.SourceHostsFile, cliName1))
-
-			return true
+			return compareRuntimeInfo(cli, client.SourceHostsFile, cliName1)
 		}, testTimeout, testTimeout/10)
 
 		// Remove the matching client.

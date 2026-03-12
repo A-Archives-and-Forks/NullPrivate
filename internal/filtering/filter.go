@@ -215,13 +215,19 @@ func (d *DNSFilter) filterAdd(flt FilterYAML) (err error) {
 // And if any filter has zero ID, assign a new one
 func (d *DNSFilter) loadFilters(array []FilterYAML) {
 	totalCount := 0
-	// 仅在 personal / family 模式下限制 1000000 条规则
-	maximumCount := 0
-	switch d.conf.ServiceType {
-	case "personal", "family":
-		maximumCount = 1000000
-	default:
-		maximumCount = 0
+	// 计算本次加载的规则数上限：
+	// - 若配置了正数，直接使用该值；
+	// - 若未设置或<=0：
+	//     * personal/family 使用默认 1_000_000；
+	//     * 其他（如 enterprise）不限制。
+	maximumCount := d.conf.FiltersMaximumCount
+	if maximumCount <= 0 {
+		switch d.conf.ServiceType {
+		case "personal", "family":
+			maximumCount = 1_000_000
+		default:
+			maximumCount = 0
+		}
 	}
 	for i := range array {
 		filter := &array[i] // otherwise we're operating on a copy
@@ -244,7 +250,7 @@ func (d *DNSFilter) loadFilters(array []FilterYAML) {
 
 		totalCount += filter.RulesCount
 		if maximumCount > 0 && totalCount > maximumCount {
-			log.Error("filtering: too many rules in filters, skipping the rest")
+			log.Error("filtering: too many rules in filters, exceed the limit %d", maximumCount)
 			break
 		}
 	}

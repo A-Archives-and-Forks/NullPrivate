@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,8 +38,16 @@ type ServiceLoader struct {
 	logger *slog.Logger
 }
 
+// 当服务缺少 IconSVG 字段时使用的默认 SVG（来源: SVG Repo）。
+const defaultIconSVG = `<svg fill="#000000" width="800px" height="800px" viewBox="0 -8 72 72" id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg"><title>check</title><path d="M61.07,12.9,57,8.84a2.93,2.93,0,0,0-4.21,0L28.91,32.73,19.2,23A3,3,0,0,0,15,23l-4.06,4.07a2.93,2.93,0,0,0,0,4.21L26.81,47.16a2.84,2.84,0,0,0,2.1.89A2.87,2.87,0,0,0,31,47.16l30.05-30a2.93,2.93,0,0,0,0-4.21Z"/></svg>`
+
 // NewServiceLoader creates a new service loader
 func NewServiceLoader(urls ServicesURLs, dataDir string, client *http.Client, logger *slog.Logger) *ServiceLoader {
+	// 确保 http.Client 非空，避免早期预加载时触发空指针
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+
 	return &ServiceLoader{
 		urls:     urls,
 		dataDir:  dataDir,
@@ -73,38 +82,70 @@ func (s *ServiceLoader) LoadServices(ctx context.Context) ([]blockedService, err
 		return nil, fmt.Errorf("failed to create service cache directory: %w", err)
 	}
 
-	var allServices []blockedService
-	for _, url := range s.urls {
-		services, err := s.loadFromURL(ctx, url)
-		if err != nil {
-			s.logger.ErrorContext(ctx, "failed to load services from URL", slogutil.KeyError, err, "url", url)
-			continue
-		}
-		allServices = append(allServices, services...)
-	}
+	allServices, aggErr := s.loadFromAllURLs(ctx)
 
 	if len(allServices) > 0 {
 		s.services = allServices
 		s.lastRefresh = time.Now()
+		return s.services, nil
 	}
 
-	return s.services, nil
+	// 如果没有任何来源成功，且此前已有缓存内存副本，则返回缓存副本；否则返回错误
+	if s.services != nil {
+		return s.services, nil
+	}
+
+	if aggErr == nil {
+		aggErr = fmt.Errorf("no services loaded from configured URLs")
+	}
+
+	return nil, aggErr
+}
+
+// loadFromAllURLs iterates over configured URLs, loads services and aggregates errors.
+func (s *ServiceLoader) loadFromAllURLs(ctx context.Context) ([]blockedService, error) {
+	var allServices []blockedService
+	var aggErr error
+	for _, url := range s.urls {
+		services, err := s.loadFromURL(ctx, url)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				s.logger.DebugContext(ctx, "load services canceled", slogutil.KeyError, err, "url", url)
+			} else {
+				s.logger.ErrorContext(ctx, "failed to load services from URL", slogutil.KeyError, err, "url", url)
+			}
+			if aggErr == nil {
+				aggErr = err
+			} else {
+				aggErr = fmt.Errorf("%w; %v", aggErr, err)
+			}
+			continue
+		}
+		allServices = append(allServices, services...)
+	}
+	return allServices, aggErr
 }
 
 // GetBlockedServices gets all loaded blocked services
 func (s *ServiceLoader) GetBlockedServices(ctx context.Context) []blockedService {
+	// Read current services under read lock, then release before potentially
+	// acquiring the write lock inside LoadServices to avoid self-deadlock.
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	services := s.services
+	s.mu.RUnlock()
 
-	if s.services != nil {
-		return s.services
+	if services != nil {
+		return services
 	}
 
-	// If not loaded yet, try to load
+	// If not loaded yet, try to load without holding the read lock.
 	services, err := s.LoadServices(ctx)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to load services", slogutil.KeyError, err)
-		// If loading fails, return the built-in service list
+		return blockedServices
+	}
+
+	if len(services) == 0 {
 		return blockedServices
 	}
 
@@ -119,13 +160,27 @@ func (s *ServiceLoader) loadFromURL(ctx context.Context, url string) ([]blockedS
 		return nil, fmt.Errorf("failed to check cache: %w", err)
 	}
 
-	// If cache exists and is less than 3 days old, use it
+	// 若本地已有缓存且未超过3天，直接使用本地缓存
 	if cacheExists && time.Since(cacheInfo.ModTime()) < 3*24*time.Hour {
 		return s.loadFromFile(cacheFile)
 	}
 
-	// Download and update cache
-	return s.downloadAndCache(ctx, url, cacheFile)
+	// 若本地有缓存但已过期：尝试下载，失败则回退到本地旧缓存
+	if cacheExists {
+		services, dlErr := s.downloadAndCache(ctx, url, cacheFile)
+		if dlErr != nil {
+			s.logger.WarnContext(ctx, "download failed; using stale cache", slogutil.KeyError, dlErr, "file", cacheFile)
+			return s.loadFromFile(cacheFile)
+		}
+		return services, nil
+	}
+
+	// 本地无缓存：下载；失败则返回错误
+	services, dlErr := s.downloadAndCache(ctx, url, cacheFile)
+	if dlErr != nil {
+		return nil, dlErr
+	}
+	return services, nil
 }
 
 // cacheFileName generates a cache filename based on the URL
@@ -216,13 +271,60 @@ func convertToBlockedServices(hlServices []*hlServicesService) []blockedService 
 	services := make([]blockedService, 0, len(hlServices))
 
 	for _, service := range hlServices {
+		icon := service.IconSVG
+		if strings.TrimSpace(icon) == "" {
+			icon = defaultIconSVG
+		}
 		services = append(services, blockedService{
 			ID:      service.ID,
 			Name:    service.Name,
-			IconSVG: []byte(service.IconSVG),
+			IconSVG: []byte(icon),
 			Rules:   service.Rules,
 		})
 	}
 
 	return services
+}
+
+// PreloadServiceCatalog 在启动早期预加载服务源，并更新全局的 serviceRules。
+// 这样在 clients 初始化阶段调用 SanitizeBlockedServiceIDs 时，能够识别来自
+// 动态服务源（service_urls）的 ID，避免被误判为未知而剔除。
+//
+// 注意：这是一个幂等的便捷函数，允许在 DNS 过滤模块创建之前调用。
+func PreloadServiceCatalog(ctx context.Context, conf *Config, logger *slog.Logger) {
+	if conf == nil {
+		return
+	}
+
+	slogger := slog.Default()
+	if logger != nil {
+		slogger = logger
+	}
+
+	// 若未配置 service_urls，按内部默认值与现有逻辑处理
+	urls := conf.ServiceURLs
+	if len(urls) == 0 {
+		urls = []string{"https://hostlistsregistry.adguardprivate.com/assets/services.zh-cn.json"}
+	}
+
+	loader := NewServiceLoader(urls, conf.DataDir, conf.HTTPClient, slogger)
+
+	// 设置为全局 loader，供后续使用
+	serviceLoaderMu.Lock()
+	serviceLoader = loader
+	serviceLoaderMu.Unlock()
+
+	// 带超时的同步加载，避免阻塞启动过久
+	ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if _, err := loader.LoadServices(ctx2); err != nil {
+		// 加载失败不阻断启动：回退至内置服务
+		slogger.ErrorContext(ctx, "filtering: preload services failed at startup", slogutil.KeyError, err)
+		initBlockedServices()
+		return
+	}
+
+	// 将已加载的服务写入 serviceRules
+	updateBlockedServicesFromLoader(context.Background())
 }

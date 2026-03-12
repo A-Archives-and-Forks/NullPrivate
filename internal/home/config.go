@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardHome/internal/aghalg"
-	"github.com/AdguardTeam/AdGuardHome/internal/aghos"
 	"github.com/AdguardTeam/AdGuardHome/internal/aghtls"
 	"github.com/AdguardTeam/AdGuardHome/internal/configmigrate"
 	"github.com/AdguardTeam/AdGuardHome/internal/dhcpd"
@@ -26,7 +25,6 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/renameio/v2/maybe"
 	yaml "gopkg.in/yaml.v3"
 )
 
@@ -537,6 +535,8 @@ var config = &configuration{
 
 		FilteringEnabled:           true,
 		FiltersUpdateIntervalHours: 24,
+		// 默认不限制 Filters 最大规则数，保持与 enterprise 一致
+		FiltersMaximumCount: 0,
 
 		ParentalEnabled:     false,
 		SafeBrowsingEnabled: false,
@@ -663,10 +663,9 @@ func parseConfig() (err error) {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	} else if upgraded {
-		confPath := configFilePath()
-		log.Debug("writing config file %q after config upgrade", confPath)
+		log.Debug("writing upgraded config to persistent store")
 
-		err = maybe.WriteFile(confPath, config.fileData, aghos.DefaultPermFile)
+		err = writeConfigDataWithReason(config.fileData, configChangeReasonMigrate, defaultConfigRevisionActor)
 		if err != nil {
 			return fmt.Errorf("writing new config: %w", err)
 		}
@@ -762,11 +761,10 @@ func readConfigFile() (fileData []byte, err error) {
 		return config.fileData, nil
 	}
 
-	confPath := configFilePath()
-	log.Debug("reading config file %q", confPath)
+	log.Debug("reading config from persistent store")
 
 	// Do not wrap the error because it's informative enough as is.
-	return os.ReadFile(confPath)
+	return currentConfigStore().Read()
 }
 
 // Saves configuration to the YAML file and also saves the user filter contents to a file
@@ -830,8 +828,7 @@ func (c *configuration) write(tlsMgr *tlsManager) (err error) {
 
 	config.Clients.Persistent = globalContext.clients.forConfig()
 
-	confPath := configFilePath()
-	log.Debug("writing config file %q", confPath)
+	log.Debug("writing config to persistent store")
 
 	buf := &bytes.Buffer{}
 	enc := yaml.NewEncoder(buf)
@@ -842,10 +839,12 @@ func (c *configuration) write(tlsMgr *tlsManager) (err error) {
 		return fmt.Errorf("generating config file: %w", err)
 	}
 
-	err = maybe.WriteFile(confPath, buf.Bytes(), aghos.DefaultPermFile)
+	err = writeConfigData(buf.Bytes())
 	if err != nil {
-		return fmt.Errorf("writing config file: %w", err)
+		return fmt.Errorf("writing config: %w", err)
 	}
+
+	config.fileData = bytes.Clone(buf.Bytes())
 
 	return nil
 }

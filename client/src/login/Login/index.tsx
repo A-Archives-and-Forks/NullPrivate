@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
+// import { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Trans } from 'react-i18next';
+// import { Trans } from 'react-i18next';
 
 import * as actionCreators from '../../actions/login';
 
@@ -17,15 +18,15 @@ import { LoginState } from '../../initialState';
 export const Login = () => {
     const dispatch = useDispatch();
     const { processingLogin } = useSelector((state: LoginState) => state.login);
-    const [isForgotPasswordVisible, setIsForgotPasswordVisible] = useState(false);
+    // const [isForgotPasswordVisible, setIsForgotPasswordVisible] = useState(false);
 
     const handleSubmit = ({ username: name, password }: LoginFormValues) => {
         dispatch(actionCreators.processLogin({ name, password }));
     };
 
-    const toggleText = () => {
-        setIsForgotPasswordVisible((prev) => !prev);
-    };
+    // const toggleText = () => {
+    //     setIsForgotPasswordVisible((prev) => !prev);
+    // };
 
     return (
         <div className="login">

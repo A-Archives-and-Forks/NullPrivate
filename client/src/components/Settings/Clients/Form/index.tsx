@@ -58,10 +58,16 @@ export const Form = ({
     initialValues,
 }: Props) => {
     const { t } = useTranslation();
+    const DOT_TOKEN = '__DOT__';
+    const encodeKey = (id: string) => id.replace(/\./g, DOT_TOKEN);
+    const encodeBlocked = (bs: Record<string, boolean> = {}) =>
+        Object.fromEntries(Object.entries(bs).map(([k, v]) => [encodeKey(k), v]));
+
     const methods = useForm<ClientForm>({
         defaultValues: {
             ...defaultFormValues,
             ...initialValues,
+            blocked_services: encodeBlocked(initialValues?.blocked_services || {}),
         },
         mode: 'onBlur',
     });

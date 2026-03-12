@@ -164,8 +164,8 @@
                     CHANNEL="${bamboo.channel}" \
                     REVISION="${bamboo.repository.revision.number}" \
                     DIST_DIR='dist' \
-                    DOCKER_IMAGE_NAME='adguard/adguardhome' \
-                    DOCKER_OUTPUT="type=image,name=adguard/adguardhome,push=true" \
+                    DOCKER_IMAGE_NAME='nullprivate/nullprivate' \
+                    DOCKER_OUTPUT="type=image,name=nullprivate/nullprivate,push=true" \
                     VERBOSE='1' \
                     sh ./scripts/make/build-docker.sh
             'environment':

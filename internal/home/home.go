@@ -78,6 +78,9 @@ type homeContext struct {
 	// command-line options.
 	confFilePath string
 
+	// configStore is the active configuration persistence backend.
+	configStore configStore
+
 	workDir     string // Location of our directory, used to protect against CWD being somewhere else
 	pidFileName string // PID file name.  Empty if no PID file was created.
 	controlLock sync.Mutex
@@ -604,6 +607,9 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 	// Configure config filename.
 	initConfigFilename(opts)
 
+	err = initConfigStore()
+	fatalOnError(err)
+
 	ls := getLogSettings(opts)
 
 	// Configure log level and output.
@@ -631,6 +637,13 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 	// (filtering.BlockedSvcKnown()), so we have to initialize filtering static
 	// data first, but also to avoid relying on automatic Go init() function.
 	filtering.InitModule()
+
+	// 在初始化 clients 之前预加载服务源。
+	// 确保使用正确的数据目录（workDir/data -> data/data）。
+	if config.Filtering != nil {
+		config.Filtering.DataDir = globalContext.getDataDir()
+	}
+	filtering.PreloadServiceCatalog(context.Background(), config.Filtering, slogLogger)
 
 	// TODO(s.chzhen):  Use it for the entire initialization process.
 	ctx := context.Background()
@@ -671,13 +684,8 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 	cmdlineUpdate(ctx, updLogger, opts, upd, tlsMgr)
 
 	if !globalContext.firstRun {
-		// Save the updated config.
-		err = config.write(nil)
+		err = handlePostFirstRun(slogLogger)
 		fatalOnError(err)
-
-		if config.HTTPConfig.Pprof.Enabled {
-			startPprof(slogLogger, config.HTTPConfig.Pprof.Port)
-		}
 	}
 
 	dataDir := globalContext.getDataDir()
@@ -731,6 +739,21 @@ func run(opts options, clientBuildFS fs.FS, done chan struct{}, sigHdlr *signalH
 
 	// Wait for other goroutines to complete their job.
 	<-done
+}
+
+// handlePostFirstRun performs initialization steps that should only run
+// when the application is not in the first-run mode.
+func handlePostFirstRun(slogLogger *slog.Logger) error {
+	// Save the updated config.
+	if err := config.write(nil); err != nil {
+		return err
+	}
+
+	if config.HTTPConfig.Pprof.Enabled {
+		startPprof(slogLogger, config.HTTPConfig.Pprof.Port)
+	}
+
+	return nil
 }
 
 // newUpdater creates a new AdGuard Home updater.  l and conf must not be nil.
@@ -932,6 +955,19 @@ func initWorkingDir(opts options) (err error) {
 func cleanup(ctx context.Context) {
 	log.Info("stopping AdGuard Home")
 
+	if globalContext.configStore != nil {
+		err := globalContext.configStore.Close()
+		if err != nil {
+			log.Error("closing config store: %s", err)
+		}
+
+		globalContext.configStore = nil
+	}
+
+	if globalContext.tls != nil {
+		globalContext.tls.Close()
+	}
+
 	if globalContext.web != nil {
 		globalContext.web.close(ctx)
 		globalContext.web = nil
@@ -1055,19 +1091,12 @@ func printHTTPAddresses(proto string, tlsMgr *tlsManager) {
 
 // detectFirstRun returns true if this is the first run of AdGuard Home.
 func detectFirstRun() (ok bool) {
-	confPath := globalContext.confFilePath
-	if !filepath.IsAbs(confPath) {
-		confPath = filepath.Join(globalContext.workDir, globalContext.confFilePath)
-	}
-
-	_, err := os.Stat(confPath)
+	exists, err := currentConfigStore().Exists()
 	if err == nil {
-		return false
-	} else if errors.Is(err, os.ErrNotExist) {
-		return true
+		return !exists
 	}
 
-	log.Error("detecting first run: %s; considering first run", err)
+	log.Error("detecting first run from config store: %s; considering first run", err)
 
 	return true
 }

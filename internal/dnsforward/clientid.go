@@ -94,7 +94,7 @@ type tlsConn interface {
 }
 
 // quicConnection is a narrow interface for quic.Connection to simplify testing.
-type quicConnection interface {
+type quicConnectionState interface {
 	ConnectionState() (cs quic.ConnectionState)
 }
 
@@ -117,11 +117,11 @@ func clientServerName(pctx *proxy.DNSContext, proto proxy.Proto) (srvName string
 		}
 	case proxy.ProtoQUIC:
 		qConn := pctx.QUICConnection
-		conn, ok := qConn.(quicConnection)
-		if !ok {
-			return "", fmt.Errorf("pctx conn of proto %s is %T, want quic.Connection", proto, qConn)
+		if qConn == nil {
+			return "", fmt.Errorf("pctx conn of proto %s is nil", proto)
 		}
 
+		var conn quicConnectionState = qConn
 		srvName = conn.ConnectionState().TLS.ServerName
 	case proxy.ProtoTLS:
 		conn := pctx.Conn

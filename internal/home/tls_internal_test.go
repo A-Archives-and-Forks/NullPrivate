@@ -177,7 +177,7 @@ func writeCertAndKey(
 ) {
 	tb.Helper()
 
-	certFile, err := os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE, 0o600)
+	certFile, err := os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	require.NoError(tb, err)
 
 	defer func() {
@@ -188,7 +188,7 @@ func writeCertAndKey(
 	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	require.NoError(tb, err)
 
-	keyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE, 0o600)
+	keyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	require.NoError(tb, err)
 
 	defer func() {
@@ -280,6 +280,180 @@ func TestTLSManager_Reload(t *testing.T) {
 
 	conf = m.config()
 	assertCertSerialNumber(t, conf, snAfter)
+}
+
+func TestTLSManager_Reload_PrivateKeyFileChanged(t *testing.T) {
+	storeGlobals(t)
+
+	config.DNS.Port = 0
+
+	var (
+		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		err error
+	)
+
+	globalContext.dnsServer, err = dnsforward.NewServer(dnsforward.DNSCreateParams{
+		Logger: testLogger,
+	})
+	require.NoError(t, err)
+
+	globalContext.clients.storage, err = client.NewStorage(ctx, &client.StorageConfig{
+		Logger: testLogger,
+		Clock:  timeutil.SystemClock{},
+	})
+	require.NoError(t, err)
+
+	globalContext.mux = http.NewServeMux()
+
+	const (
+		snBefore int64 = 1
+		snAfter  int64 = 2
+	)
+
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+
+	certDER, key := newCertAndKey(t, snBefore)
+	writeCertAndKey(t, certDER, certPath, key, keyPath)
+
+	certFI, err := os.Stat(certPath)
+	require.NoError(t, err)
+	certModBefore := certFI.ModTime()
+
+	m, err := newTLSManager(ctx, &tlsManagerConfig{
+		logger:         testLogger,
+		configModified: func() {},
+		tlsSettings: tlsConfigSettings{
+			Enabled:         true,
+			CertificatePath: certPath,
+			PrivateKeyPath:  keyPath,
+		},
+		servePlainDNS: false,
+	})
+	require.NoError(t, err)
+
+	web, err := initWeb(ctx, options{}, nil, nil, testLogger, nil, false)
+	require.NoError(t, err)
+
+	m.setWebAPI(web)
+
+	conf := m.config()
+	assertCertSerialNumber(t, conf, snBefore)
+
+	certDER, key = newCertAndKey(t, snAfter)
+	writeCertAndKey(t, certDER, certPath, key, keyPath)
+
+	// Keep the certificate file modification time intact to make sure that the
+	// reload is triggered by the key file changes.
+	err = os.Chtimes(certPath, certModBefore, certModBefore)
+	require.NoError(t, err)
+
+	m.reload(ctx)
+
+	// The [tlsManager.reload] method will start the DNS server and it should be
+	// stopped after the test ends.
+	testutil.CleanupAndRequireSuccess(t, globalContext.dnsServer.Stop)
+
+	conf = m.config()
+	assertCertSerialNumber(t, conf, snAfter)
+}
+
+func TestTLSManager_CertReloadTimer_FileCertOnly(t *testing.T) {
+	t.Run("enabled_file_cert_starts", func(t *testing.T) {
+		storeGlobals(t)
+
+		globalContext.mux = http.NewServeMux()
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+
+		tmpDir := t.TempDir()
+		certPath := filepath.Join(tmpDir, "cert.pem")
+		keyPath := filepath.Join(tmpDir, "key.pem")
+
+		certDER, key := newCertAndKey(t, 1)
+		writeCertAndKey(t, certDER, certPath, key, keyPath)
+
+		m, err := newTLSManager(ctx, &tlsManagerConfig{
+			logger:         testLogger,
+			configModified: func() {},
+			tlsSettings: tlsConfigSettings{
+				Enabled:         true,
+				CertificatePath: certPath,
+				PrivateKeyPath:  keyPath,
+			},
+			servePlainDNS: false,
+		})
+		require.NoError(t, err)
+
+		web, err := initWeb(ctx, options{}, nil, nil, testLogger, nil, false)
+		require.NoError(t, err)
+
+		m.setWebAPI(web)
+		m.start(ctx)
+		t.Cleanup(m.Close)
+
+		assert.NotNil(t, m.certReloadCancel)
+		assert.NotNil(t, m.certReloadDone)
+	})
+
+	t.Run("disabled_tls_does_not_start", func(t *testing.T) {
+		storeGlobals(t)
+
+		globalContext.mux = http.NewServeMux()
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+
+		m, err := newTLSManager(ctx, &tlsManagerConfig{
+			logger:         testLogger,
+			configModified: func() {},
+			tlsSettings: tlsConfigSettings{
+				Enabled: false,
+			},
+			servePlainDNS: false,
+		})
+		require.NoError(t, err)
+
+		web, err := initWeb(ctx, options{}, nil, nil, testLogger, nil, false)
+		require.NoError(t, err)
+
+		m.setWebAPI(web)
+		m.start(ctx)
+		t.Cleanup(m.Close)
+
+		assert.Nil(t, m.certReloadCancel)
+		assert.Nil(t, m.certReloadDone)
+	})
+
+	t.Run("inline_cert_does_not_start", func(t *testing.T) {
+		storeGlobals(t)
+
+		globalContext.mux = http.NewServeMux()
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+
+		m, err := newTLSManager(ctx, &tlsManagerConfig{
+			logger:         testLogger,
+			configModified: func() {},
+			tlsSettings: tlsConfigSettings{
+				Enabled:          true,
+				CertificateChain: string(testCertChainData),
+				PrivateKey:       string(testPrivateKeyData),
+			},
+			servePlainDNS: false,
+		})
+		require.NoError(t, err)
+
+		web, err := initWeb(ctx, options{}, nil, nil, testLogger, nil, false)
+		require.NoError(t, err)
+
+		m.setWebAPI(web)
+		m.start(ctx)
+		t.Cleanup(m.Close)
+
+		assert.Nil(t, m.certReloadCancel)
+		assert.Nil(t, m.certReloadDone)
+	})
 }
 
 func TestTLSManager_HandleTLSStatus(t *testing.T) {

@@ -14,16 +14,21 @@ import { ScheduleForm } from './ScheduleForm';
 import { RootState } from '../../../initialState';
 import ServiceUrls from './ServiceUrls';
 
-const getInitialDataForServices = (initial: any) =>
-    initial
-        ? initial.reduce(
-              (acc: any, service: any) => {
-                  acc.blocked_services[service] = true;
-                  return acc;
-              },
-              { blocked_services: {} },
-          )
-        : initial;
+const getInitialDataForServices = (initial: any) => {
+    // 将后端返回的 ids（可能为 null/[]/string[]）统一转换为
+    // { blocked_services: { [id]: true } } 的形态，避免因 null 导致组件不渲染
+    if (Array.isArray(initial)) {
+        return initial.reduce(
+            (acc: any, service: any) => {
+                acc.blocked_services[service] = true;
+                return acc;
+            },
+            { blocked_services: {} },
+        );
+    }
+    // 对于 null 或未定义，返回空的 blocked_services
+    return { blocked_services: {} };
+};
 
 const Services = () => {
     const [t] = useTranslation();
@@ -41,9 +46,11 @@ const Services = () => {
             return;
         }
 
-        const blocked_services = Object.keys(values.blocked_services).filter(
-            (service) => values.blocked_services[service],
-        );
+        // 仅从“已知服务列表”中收集被勾选的 ID，避免历史脏键（如 1password）混入
+        const encodeKey = (id: string) => id.replace(/\./g, '__DOT__');
+        const blocked_services = (services.allServices || [])
+            .map((s: any) => s.id)
+            .filter((id: string) => values.blocked_services?.[encodeKey(id)]);
 
         dispatch(
             updateBlockedServices({
@@ -56,17 +63,13 @@ const Services = () => {
     const handleScheduleSubmit = (values: any) => {
         dispatch(
             updateBlockedServices({
-                ids: services.list.ids,
+                ids: services.list.ids || [],
                 schedule: values,
             }),
         );
     };
 
     const initialValues = getInitialDataForServices(services.list.ids);
-
-    if (!initialValues) {
-        return null;
-    }
 
     return (
         <>
